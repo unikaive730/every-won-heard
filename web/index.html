@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MarketPilot Voice Consultant</title>
+  <meta name="description" content="Talk to a marketing consultant. AssemblyAI listens, MarketPilot plans." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23e4572e'/%3E%3Crect x='12' y='7' width='8' height='13' rx='4' fill='white'/%3E%3Cpath d='M9 16a7 7 0 0 0 14 0M16 23v3' stroke='white' stroke-width='2' fill='none'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <div>
+        <div class="brand-name">MarketPilot <span>Voice Consultant</span></div>
+        <div class="brand-sub" data-i18n="tagline">사장님이 말하면, 30일 마케팅 계획이 나옵니다</div>
+      </div>
+    </div>
+    <div class="status" id="status">
+      <span class="badge" id="badge-aai" title="AssemblyAI">AssemblyAI <em>…</em></span>
+      <span class="badge" id="badge-llm" title="LLM">LLM <em>…</em></span>
+      <span class="badge" id="badge-mcp" title="MarketPilot MCP">MCP <em>…</em></span>
+    </div>
+    <div class="lang" role="radiogroup" aria-label="language">
+      <button class="lang-btn is-on" data-lang="ko" type="button">한국어</button>
+      <button class="lang-btn" data-lang="en" type="button">English</button>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="call card">
+      <div class="call-head">
+        <button id="btn-call" class="mic" type="button" aria-pressed="false">
+          <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M6.5 11a5.5 5.5 0 0 0 11 0M12 16.5V21M8.5 21h7" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+          <span id="btn-call-label" data-i18n="start">상담 시작</span>
+        </button>
+        <div class="call-meta">
+          <div class="call-state" id="call-state" data-i18n="idle">마이크를 켜고 말씀하시면 됩니다. 마이크가 없으면 아래에 입력하세요.</div>
+          <div class="meter"><i id="meter"></i></div>
+          <div class="call-sub"><span id="call-mode"></span> <span id="call-timer">00:00</span></div>
+        </div>
+        <button id="btn-end" class="ghost" type="button" hidden data-i18n="end">상담 종료</button>
+      </div>
+
+      <div class="transcript" id="transcript" aria-live="polite"></div>
+
+      <form class="composer" id="composer">
+        <input id="composer-input" type="text" autocomplete="off" data-i18n-placeholder="typeHere" placeholder="말하기 대신 입력하기 (키 없이도 동작)" />
+        <button type="submit" data-i18n="send">보내기</button>
+      </form>
+    </section>
+
+    <aside class="side">
+      <section class="card" id="card-brief">
+        <h2 data-i18n="heard">들은 내용</h2>
+        <dl class="slots" id="slots"></dl>
+        <div class="place" id="place" hidden></div>
+      </section>
+
+      <section class="card" id="card-plan" hidden>
+        <h2 data-i18n="plan">30일 계획</h2>
+        <div class="plan" id="plan"></div>
+        <div class="checkout" id="checkout"></div>
+      </section>
+
+      <section class="card" id="card-checklist" hidden>
+        <h2 data-i18n="checklist">실행 체크리스트</h2>
+        <ol class="checklist" id="checklist"></ol>
+      </section>
+
+      <section class="card" id="card-analysis" hidden>
+        <h2 data-i18n="analysis">통화 분석 <small>AssemblyAI speaker labels · sentiment · key phrases · entities</small></h2>
+        <div class="analysis" id="analysis"></div>
+      </section>
+    </aside>
+  </main>
+
+  <footer class="foot">
+    <span data-i18n="footNote">브라우저에는 60초짜리 임시 토큰만 내려갑니다. API 키는 서버에만 있습니다.</span>
+    <span id="foot-catalog"></span>
+  </footer>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
