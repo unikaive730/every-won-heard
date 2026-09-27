@@ -1,0 +1,12 @@
+{
+  "_note": "Test caller lines for probes. Korean lines K1-K3 follow the demo script (design section 8). WAVs are generated locally by make-voice-lines.ps1 and are not committed.",
+  "lines": [
+    { "id": "K1", "voice": "ko-KR", "rate": 16000, "text": "망원시장 근처에서 라멘집 하는데요, 평일 점심이 너무 비어요." },
+    { "id": "K2", "voice": "ko-KR", "rate": 16000, "text": "블로그 체험단은 해 봤고요, 예산은 한 달에 오십, 아니 사십팔만 원 정도요." },
+    { "id": "K3", "voice": "ko-KR", "rate": 16000, "text": "네, 맞아요." },
+    { "id": "C2a", "voice": "en-US", "rate": 24000, "text": "Maybe four or five hundred thousand won a month." },
+    { "id": "C2b", "voice": "en-US", "rate": 24000, "text": "Four hundred eighty thousand won a month." },
+    { "id": "C3", "voice": "en-US", "rate": 24000, "text": "Yes, that's right." },
+    { "id": "C7", "voice": "en-US", "rate": 24000, "text": "Thanks. Bye." }
+  ]
+}
