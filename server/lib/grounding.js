@@ -1,0 +1,85 @@
+/**
+ * Grounding check for budgets (design 6-5). The server listens separately and decides.
+ *
+ * 1. Candidates: the owner's final turns since the previous budget decision, at most the last 2, within 20 s.
+ * 2. parseAmounts() over those turns (joined, so a number split by a pause still reads as one).
+ * 3. No amount            -> { error: 'no_amount_heard' }
+ * 4. Correction marker    -> only the last amount counts. Two amounts or a range without one -> 'ambiguous_amount'.
+ * 5. The model passed a different amount than the server heard -> 'amount_mismatch' with heard_krw.
+ * 6. Pass                 -> the caller writes a ledger row 'heard' with phrase, item_id, time, via, paraphrased.
+ * 7. A mismatch is rejected once per heard amount; the second time the server's value is used (no re-ask loop).
+ * 8. Errors go back to Voice Agent as tool.result with is_error: true (the route does that).
+ *
+ * The Korean path has no model argument: amount_krw is null and the server's reading is the answer.
+ */
+import { pickAmount, readBack } from './amounts.js';
+
+const ASK = {
+  no_amount_heard: 'Ask for the monthly budget as a number.',
+  ambiguous_amount: 'Ask which one to plan for.',
+  amount_mismatch: 'Read back heard_krw and ask the owner to confirm.',
+};
+
+function norm(s) {
+  return String(s || '').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+}
+
+export function createGrounding({ now = () => Date.now(), windowMs = 20_000, maxTurns = 2 } = {}) {
+  const heard = []; // {item_id, text, at, via}
+  const state = { lastDecisionAt: 0, rejections: new Set(), decisions: 0 };
+
+  /** A final owner transcript (Voice Agent transcript.user, or a streaming end-of-turn). */
+  function addHeard({ item_id = null, text, at = now(), via = 'text' }) {
+    const t = String(text || '').trim();
+    if (!t) return null;
+    const turn = { item_id: item_id || `turn_${heard.length + 1}`, text: t, at, via };
+    heard.push(turn);
+    return turn;
+  }
+
+  function candidates(at = now()) {
+    return heard.filter((h) => h.at > state.lastDecisionAt && at - h.at <= windowMs).slice(-maxTurns);
+  }
+
+  /**
+   * @param {{amount_krw?:number|null, owner_words?:string, lang?:'en'|'ko', at?:number}} input
+   */
+  function judge({ amount_krw = null, owner_words = '', lang = 'en', at = now() } = {}) {
+    const turns = candidates(at);
+    state.lastDecisionAt = at;
+    state.decisions += 1;
+    // join the turns and remember where each one starts, to find the phrase's turn afterwards
+    let joined = '';
+    const spans = [];
+    for (const t of turns) {
+      if (joined) joined += ' ';
+      spans.push({ turn: t, start: joined.length, end: joined.length + t.text.length });
+      joined += t.text;
+    }
+    const pick = pickAmount(joined);
+    const base = { turns: turns.map((t) => ({ item_id: t.item_id, text: t.text })) };
+
+    if (pick.status === 'none') return { ok: false, error: 'no_amount_heard', ask: ASK.no_amount_heard, ...base };
+    if (pick.status === 'ambiguous') {
+      const span = pick.item ? spans.find((s) => pick.item.index >= s.start && pick.item.index < s.end) : spans[spans.length - 1];
+      return { ok: false, error: 'ambiguous_amount', options: pick.options, ask: ASK.ambiguous_amount, phrase: pick.item?.text || null, item_id: span?.turn.item_id || null, heard_at: span?.turn.at || null, ...base };
+    }
+
+    const value = pick.value;
+    const span = spans.find((s) => pick.item.index >= s.start && pick.item.index < s.end) || spans[spans.length - 1];
+    const found = { phrase: pick.item.text, item_id: span.turn.item_id, heard_at: span.turn.at, via: span.turn.via };
+    let forced = false;
+    if (amount_krw != null && Number(amount_krw) !== value) {
+      const key = `mismatch:${value}`;
+      if (!state.rejections.has(key)) {
+        state.rejections.add(key);
+        return { ok: false, error: 'amount_mismatch', heard_krw: value, model_krw: Number(amount_krw), ask: ASK.amount_mismatch, ...found, ...base };
+      }
+      forced = true; // second time: the server's reading wins, the agent reads it back
+    }
+    const paraphrased = Boolean(owner_words) && !norm(joined).includes(norm(owner_words));
+    return { ok: true, amount_krw: value, read_back: readBack(value, lang), paraphrased, forced, ...found, ...base };
+  }
+
+  return { heard, state, addHeard, candidates, judge };
+}
