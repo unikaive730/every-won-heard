@@ -26,7 +26,8 @@ function norm(s) {
 
 export function createGrounding({ now = () => Date.now(), windowMs = 20_000, maxTurns = 2 } = {}) {
   const heard = []; // {item_id, text, at, via}
-  const state = { lastDecisionAt: 0, rejections: new Set(), decisions: 0 };
+  // turns before lastDecisionIdx were already judged (by order, not time: two turns can share a millisecond)
+  const state = { lastDecisionIdx: 0, rejections: new Set(), decisions: 0 };
 
   /** A final owner transcript (Voice Agent transcript.user, or a streaming end-of-turn). */
   function addHeard({ item_id = null, text, at = now(), via = 'text' }) {
@@ -38,7 +39,7 @@ export function createGrounding({ now = () => Date.now(), windowMs = 20_000, max
   }
 
   function candidates(at = now()) {
-    return heard.filter((h) => h.at > state.lastDecisionAt && at - h.at <= windowMs).slice(-maxTurns);
+    return heard.slice(state.lastDecisionIdx).filter((h) => at - h.at <= windowMs).slice(-maxTurns);
   }
 
   /**
@@ -46,7 +47,7 @@ export function createGrounding({ now = () => Date.now(), windowMs = 20_000, max
    */
   function judge({ amount_krw = null, owner_words = '', lang = 'en', at = now() } = {}) {
     const turns = candidates(at);
-    state.lastDecisionAt = at;
+    state.lastDecisionIdx = heard.length;
     state.decisions += 1;
     // join the turns and remember where each one starts, to find the phrase's turn afterwards
     let joined = '';

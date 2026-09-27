@@ -17,6 +17,7 @@ const fmt = (n) => Math.round(n).toLocaleString('en-US');
 
 /** "사십팔만 원 · ₩480,000 · confirmed" (the words follow the call language, the number does not). */
 export function rowLabel(row) {
+  if (row.source !== 'owner') return `${row.label || row.kind} · ₩${fmt(row.value_krw)} · ${row.source}`;
   if (row.status === 'rejected' && row.value_krw == null) {
     const opts = (row.options || []).map((o) => `₩${fmt(o)}`).join(' / ');
     return `${row.reason === 'range' ? 'range' : row.reason || 'rejected'}${opts ? ` · ${opts}` : ''} · not accepted`;

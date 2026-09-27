@@ -10,34 +10,79 @@
  */
 
 export const STREAMING_WS = 'wss://streaming.assemblyai.com/v3/ws';
+export const STREAMING_MODEL = { ko: 'universal-3-6-pro', en: 'universal-3-5-pro' };
 
 /**
- * AssemblyAI Universal-Streaming (v3) covers 18+ languages but not Korean yet
- * (AssemblyAI lists Korean streaming as "coming soon", 2026-09).
- * Korean therefore runs in "turn" mode: the browser records one utterance (VAD),
- * the server transcribes it with the pre-recorded API where Universal-2 supports `ko`.
+ * Both languages stream now. Korean runs on Universal-3.6 Pro streaming (Korean `ko` is in its
+ * language table; measured 2026-09-28). English keeps Universal-3.5 Pro on this path.
  */
 export function sttModeFor(lang) {
-  return lang === 'ko' ? 'turn' : 'stream';
+  void lang;
+  return 'stream';
+}
+
+/** Limits for agent_context / keyterms_prompt (an invalid value closes a 3.6 Pro session with error 3006). */
+export const STREAM_LIMITS = { agentContext: 1750, keyterms: 100, keytermChars: 50, modes: ['min_latency', 'balanced', 'max_accuracy'] };
+
+function cleanKeyterms(list) {
+  return (Array.isArray(list) ? list : [])
+    .map((t) => String(t || '').trim())
+    .filter((t) => t && t.length <= STREAM_LIMITS.keytermChars)
+    .slice(0, STREAM_LIMITS.keyterms);
+}
+
+function cleanContext(s) {
+  const t = String(s || '').trim();
+  return t.length > STREAM_LIMITS.agentContext ? t.slice(-STREAM_LIMITS.agentContext) : t;
 }
 
 /**
  * Build the WebSocket URL. Only a short-lived token ever reaches the browser.
- * @param {{token:string, lang?:string, sampleRate?:number, prompt?:string}} opts
+ *
+ * Korean (3.6 Pro): no format_turns and no end_of_turn_confidence_threshold (retired on 3.6 Pro; every Turn
+ * is already formatted). language_codes goes as a JSON list: measured 2026-09-28, `["ko","en"]` and a
+ * repeated parameter work, a comma list ("ko,en") is rejected with error 3006.
+ *
+ * @param {{token:string, lang?:string, sampleRate?:number, prompt?:string, agentContext?:string, keyterms?:string[], mode?:string, languageCodes?:string[]}} opts
  */
-export function buildStreamingUrl({ token, lang = 'en', sampleRate = 16000, prompt } = {}) {
+export function buildStreamingUrl({ token, lang = 'en', sampleRate = 16000, prompt, agentContext, keyterms, mode, languageCodes } = {}) {
   if (!token) throw new Error('token is required');
   const p = new URLSearchParams();
   p.set('sample_rate', String(sampleRate));
   p.set('encoding', 'pcm_s16le');
-  p.set('speech_model', 'universal-3-5-pro');
-  p.set('format_turns', 'true'); // get a punctuated, formatted final for each turn
-  p.set('language_detection', 'true'); // Turn messages carry language_code / language_confidence
-  p.set('end_of_turn_confidence_threshold', '0.5');
-  if (prompt) p.set('prompt', prompt.slice(0, 1700));
+  if (lang === 'ko') {
+    p.set('speech_model', STREAMING_MODEL.ko);
+    p.set('language_detection', 'true');
+    if (Array.isArray(languageCodes) && languageCodes.length) p.set('language_codes', JSON.stringify(languageCodes));
+    const ctx = cleanContext(agentContext);
+    if (ctx) p.set('agent_context', ctx); // the greeting, so the first answer is heard in context
+    const terms = cleanKeyterms(keyterms);
+    if (terms.length) p.set('keyterms_prompt', JSON.stringify(terms));
+    if (STREAM_LIMITS.modes.includes(mode)) p.set('mode', mode);
+  } else {
+    p.set('speech_model', STREAMING_MODEL.en);
+    p.set('format_turns', 'true'); // get a punctuated, formatted final for each turn
+    p.set('language_detection', 'true'); // Turn messages carry language_code / language_confidence
+    p.set('end_of_turn_confidence_threshold', '0.5');
+    if (prompt) p.set('prompt', prompt.slice(0, 1700));
+  }
   p.set('token', token);
-  void lang; // universal-3-5-pro is multilingual by default; no steering needed for the demo
   return `${STREAMING_WS}?${p.toString()}`;
+}
+
+/**
+ * One UpdateConfiguration message for 3.6 Pro, sent right before the agent reads its next line:
+ * the line itself as agent_context, this step's key terms, and the accuracy mode. Returns null if empty.
+ * @param {{agent_context?:string, keyterms_prompt?:string[], mode?:string, language_codes?:string[]}} listen
+ */
+export function updateConfigMessage(listen = {}) {
+  const msg = { type: 'UpdateConfiguration' };
+  const ctx = cleanContext(listen.agent_context);
+  if (ctx) msg.agent_context = ctx;
+  if (Array.isArray(listen.keyterms_prompt)) msg.keyterms_prompt = cleanKeyterms(listen.keyterms_prompt);
+  if (STREAM_LIMITS.modes.includes(listen.mode)) msg.mode = listen.mode;
+  if (Array.isArray(listen.language_codes)) msg.language_codes = listen.language_codes.filter((c) => /^[a-z]{2,3}$/.test(c));
+  return Object.keys(msg).length > 1 ? msg : null;
 }
 
 export function createTranscriptState() {

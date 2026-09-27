@@ -8,8 +8,17 @@
  */
 import { extractSlots, mergeProfile, nextMissingSlot, emptyProfile, businessLabel, problemLabel, LOCAL_TYPES } from './extract.js';
 import { buildPlan, CHANNELS } from './planner.js';
+import { createLedger } from './ledger.js';
+import { createGrounding } from './grounding.js';
+import { pickAmount, koreanShort, englishWords } from './amounts.js';
+import { listenFor } from './listen.js';
 
 const CONFIRM = [/^(네|예|좋아요|좋습니다|진행|진행해|진행할게요|그렇게 해|해 ?주세요|오케이|콜|괜찮아요|괜찮네요|할게요|하겠습니다)/, /^(yes|yeah|yep|sure|ok|okay|go ahead|let'?s do it|sounds good|looks good|do it|proceed|great)\b/i];
+// read-back answers on the grounded path ("맞아요", "that's right" as well as the plan confirmations above)
+const YES = [...CONFIRM, /^(맞아요|맞습니다|맞아|맞네요|그래요|그렇습니다|네네)/, /^(that'?s right|correct|right|exactly|that'?s it)\b/i];
+const NO = [/^(아니|아뇨|아니요|아니에요|틀려|틀렸|그게 아니)/, /^(no|nope|not quite|that'?s wrong|wrong)\b/i];
+// words that make an amount in the intake step a budget (a menu price is not)
+const BUDGET_CUE = /예산|마케팅|광고|한 ?달|월\s?\d|월\s?[일이삼사오육칠팔구십백]|매달|budget|marketing|spend|a month|per month|monthly/i;
 const ASK_PLAN = [/추천|제안|계획|플랜|뭐부터|어떻게 해야|알려 ?줘|알려 ?주세요|해야 ?할까/, /recommend|suggest|plan|what should|where (do|should) i start|how do i|tell me/i];
 
 export function greeting(lang) {
@@ -74,22 +83,34 @@ export function catalogSummaryText(lang) {
 export function createAgent({ llm = null, getCatalog, searchPlaces = null, logger = console }) {
   const sessions = new Map();
 
-  function createSession({ lang = 'ko', id = null } = {}) {
+  /**
+   * engine: 'text' (typed or per-utterance voice, the original flow), 'realtime' (Universal-3.6 Pro streaming:
+   * budgets go through the grounding check and the ledger), 'voice-agent' (the Voice Agent API path; its
+   * tool relay writes to the same ledger).
+   */
+  function createSession({ lang = 'ko', id = null, engine = 'text' } = {}) {
     const sid = id || `s_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    const createdAt = Date.now();
     const session = {
       id: sid,
       lang,
+      engine,
       profile: emptyProfile(lang),
       history: [], // {role:'user'|'agent', text, at}
       stage: 'collect', // collect -> plan -> confirmed
+      step: 'intake', // grounded path: intake -> budget -> confirm -> plan -> commit
       plan: null,
       llmTurns: 0,
       ruleTurns: 0,
-      createdAt: Date.now(),
+      createdAt,
       placeLookupDone: false,
+      ledger: createLedger({ t0: createdAt, lang }),
+      grounding: createGrounding(),
+      aaiSessionId: null,
     };
     const g = greeting(lang);
     session.history.push({ role: 'agent', text: g, at: Date.now() });
+    session.listen = listenFor('intake', lang, g);
     sessions.set(sid, session);
     return session;
   }
@@ -126,6 +147,116 @@ export function createAgent({ llm = null, getCatalog, searchPlaces = null, logge
   }
 
   /**
+   * Grounded path (engine 'realtime'): the same rule policy, but a budget is only taken from the ledger.
+   * Any amount goes through grounding.judge(); a single amount is read back ("월 48만 원, 맞으세요?"), and only
+   * the owner's yes confirms it. Ranges are rejected with a question, "no" sends us back to the budget question.
+   */
+  async function handleGroundedTurn(session, clean, meta) {
+    const lang = session.lang;
+    const now = Date.now();
+    const at = now; // server clock only: the 20 s grounding window must not depend on the browser clock
+    const via = meta.via || 'realtime';
+    session.history.push({ role: 'user', text: clean, at: now, meta });
+    session.grounding.addHeard({ item_id: meta.item_id || null, text: clean, at, via });
+
+    const slots = extractSlots(clean);
+    const { budget_krw, budget_raw, budget_currency, ...rest } = slots; // the budget only comes from the ledger
+    session.profile = mergeProfile(session.profile, rest);
+    const ko = lang === 'ko';
+    const L = (k, e) => (ko ? k : e);
+    const won = (v) => (ko ? koreanShort(v) : `${englishWords(v)} won`);
+    const pending = session.ledger.pending();
+    const moneySaid = pickAmount(clean).status !== 'none';
+    const moneyRelevant = moneySaid && (session.step !== 'intake' || BUDGET_CUE.test(clean));
+    let reply = '';
+    let planJustMade = false;
+    let decision = null;
+
+    const afterConfirmed = async (row) => {
+      session.profile = mergeProfile(session.profile, { budget_krw: row.value_krw, budget_raw: row.phrase }, { overwrite: true });
+      const missing = nextMissingSlot(session.profile);
+      if (!missing || session.plan) {
+        await maybeLookupPlace(session);
+        const replan = Boolean(session.plan);
+        await makePlan(session);
+        session.ledger.addComputed({ kind: 'plan_total', value_krw: session.plan.total_cost, label: 'plan total', note: `budget ${row.value_krw}` });
+        planJustMade = true;
+        session.step = 'plan';
+        return `${replan ? L('예산을 바꿔서 다시 짰습니다. ', 'I re-planned with the new budget. ') : ''}${session.plan.summary}`;
+      }
+      session.step = missing === 'budget' ? 'budget' : 'intake';
+      return question(missing, session.profile, lang);
+    };
+
+    if (moneyRelevant) {
+      decision = session.grounding.judge({ lang, at: now });
+      if (decision.ok) {
+        if (pending) { session.ledger.deny(pending.id, now); session.ledger.get(pending.id).reason = 'corrected'; }
+        const row = session.ledger.addHeard({ value_krw: decision.amount_krw, phrase: decision.phrase, item_id: decision.item_id, heard_at: decision.heard_at, via: decision.via || via, lang });
+        session.ledger.markReadBack(row.id, now);
+        session.pendingRowId = row.id;
+        session.step = 'confirm';
+        reply = L(`${ack(session.profile, rest, lang)}월 ${koreanShort(row.value_krw)}, 맞으세요?`, `${ack(session.profile, rest, lang)}${englishWords(row.value_krw)} won a month, is that right?`.replace(/^([a-z])/, (c) => c.toUpperCase()));
+      } else if (decision.error === 'ambiguous_amount') {
+        session.ledger.addRejected({ reason: 'range', options: decision.options, phrase: decision.phrase, item_id: decision.item_id, heard_at: decision.heard_at, via, lang });
+        const [a, b] = decision.options;
+        session.step = 'budget';
+        reply = L(`${won(a)}과 ${won(b)} 중 어느 쪽으로 계획할까요?`, `Which one should I plan for, ${englishWords(a)} or ${englishWords(b)} won?`);
+      } else {
+        session.step = 'budget';
+        reply = L('한 달 예산을 금액으로 말씀해 주세요. 예를 들면 30만 원처럼요.', 'What monthly budget should I plan for, as a number in won?');
+      }
+    } else if (pending) {
+      if (YES.some((re) => re.test(clean))) {
+        session.ledger.confirm(pending.id, now);
+        reply = `${L(`네, 월 ${koreanShort(pending.value_krw)}으로 잡겠습니다. `, `Great, ${englishWords(pending.value_krw)} won a month. `)}${await afterConfirmed(pending)}`;
+      } else if (NO.some((re) => re.test(clean))) {
+        session.ledger.deny(pending.id, now);
+        session.step = 'budget';
+        reply = L('그럼 한 달 예산을 다시 말씀해 주시겠어요?', 'Okay. What monthly budget should I plan for?');
+      } else {
+        session.step = 'confirm';
+        reply = L(`월 ${koreanShort(pending.value_krw)}으로 잡을까요? 맞으면 "네"라고 해 주세요.`, `Should I plan for ${englishWords(pending.value_krw)} won a month? Just say yes if that's right.`);
+      }
+    } else if (session.step === 'plan' && CONFIRM.some((re) => re.test(clean))) {
+      session.stage = 'confirmed';
+      session.step = 'commit';
+      reply = planFollowUp(lang);
+    } else if (session.step === 'plan' || session.step === 'commit') {
+      reply = planQuestionAnswer(session, lang) || reprompt(lang);
+    } else if (session.step === 'budget') {
+      reply = `${ack(session.profile, rest, lang)}${question('budget', session.profile, lang)}`;
+    } else {
+      const missing = nextMissingSlot(session.profile);
+      const heard = Object.values(rest).some((v) => (Array.isArray(v) ? v.length : v && v !== 'ko' && v !== 'en'));
+      if (missing) {
+        session.step = missing === 'budget' ? 'budget' : 'intake';
+        reply = heard ? `${ack(session.profile, rest, lang)}${question(missing, session.profile, lang)}` : reprompt(lang);
+      } else {
+        reply = await afterConfirmed(session.ledger.budget());
+      }
+    }
+
+    session.ruleTurns += 1;
+    session.listen = listenFor(session.step, lang, reply);
+    session.history.push({ role: 'agent', text: reply, at: Date.now(), source: 'rules' });
+    return {
+      reply,
+      source: 'rules',
+      stage: session.stage,
+      step: session.step,
+      profile: session.profile,
+      slots: rest,
+      plan: session.plan,
+      planJustMade,
+      placeCandidates: session.placeCandidates || [],
+      ledger: session.ledger.snapshot(),
+      grounding: decision ? { ok: decision.ok, error: decision.error || null, options: decision.options || null, amount_krw: decision.amount_krw ?? null, phrase: decision.phrase || null } : null,
+      listen: session.listen,
+    };
+  }
+
+  /**
    * Handle one owner utterance. Returns what to say and the updated state.
    */
   async function handleUtterance(sessionId, text, { meta = {} } = {}) {
@@ -133,6 +264,7 @@ export function createAgent({ llm = null, getCatalog, searchPlaces = null, logge
     if (!session) throw Object.assign(new Error('unknown session'), { code: 'no_session' });
     const lang = session.lang;
     const clean = String(text || '').trim();
+    if (session.engine === 'realtime') return handleGroundedTurn(session, clean, meta);
     session.history.push({ role: 'user', text: clean, at: Date.now(), meta });
 
     const slots = extractSlots(clean);

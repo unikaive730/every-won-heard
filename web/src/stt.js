@@ -1,27 +1,40 @@
 /**
  * Two speech-to-text paths, both AssemblyAI:
- *  - StreamingSTT : browser -> wss://streaming.assemblyai.com/v3/ws with a temporary token (English and 17 other languages)
+ *  - StreamingSTT : browser -> wss://streaming.assemblyai.com/v3/ws with a temporary token.
+ *                   Korean: Universal-3.6 Pro (agent_context + per-step keyterms_prompt + mode via UpdateConfiguration).
+ *                   English: Universal-3.5 Pro.
  *  - TurnVAD      : simple energy VAD that cuts one utterance at a time; the WAV goes to the server, which uses
- *                   the AssemblyAI pre-recorded API (Korean, which Universal-Streaming does not cover yet)
+ *                   the AssemblyAI pre-recorded API (kept as a fallback)
  */
-import { buildStreamingUrl, createTranscriptState, reduceTurn, flushPending } from './lib/transcript.js';
+import { buildStreamingUrl, createTranscriptState, reduceTurn, flushPending, updateConfigMessage } from './lib/transcript.js';
 
 export class StreamingSTT {
-  constructor({ getToken, lang = 'en', onEvent, onStatus, prompt }) {
+  /**
+   * @param {{getToken:Function, lang?:string, onEvent?:Function, onStatus?:Function, prompt?:string,
+   *          listen?:{agent_context?:string, keyterms_prompt?:string[], mode?:string}, languageCodes?:string[]}} opts
+   */
+  constructor({ getToken, lang = 'en', onEvent, onStatus, prompt, listen = null, languageCodes = null }) {
     this.getToken = getToken;
     this.lang = lang;
     this.onEvent = onEvent || (() => {});
     this.onStatus = onStatus || (() => {});
     this.prompt = prompt;
+    this.listen = listen;
+    this.languageCodes = languageCodes;
+    this.config = null; // what we last asked the model to listen for (for the "Listening for" line)
     this.state = createTranscriptState();
     this.ws = null;
     this.sessionId = null;
     this.bytesSent = 0;
+    // 3.6 Pro sends every Turn already formatted, so a Korean turn is final at end_of_turn
+    this.formatTurns = lang !== 'ko';
   }
 
   async start() {
     const { token } = await this.getToken();
-    const url = buildStreamingUrl({ token, lang: this.lang, prompt: this.prompt });
+    const l = this.listen || {};
+    const url = buildStreamingUrl({ token, lang: this.lang, prompt: this.prompt, agentContext: l.agent_context, keyterms: l.keyterms_prompt, mode: l.mode, languageCodes: this.languageCodes });
+    this.config = this.lang === 'ko' ? { step: l.step || null, mode: l.mode || 'balanced', keyterms: (l.keyterms_prompt || []).length, agent_context: l.agent_context || '' } : null;
     await new Promise((resolve, reject) => {
       const ws = new WebSocket(url);
       ws.binaryType = 'arraybuffer';
@@ -44,11 +57,12 @@ export class StreamingSTT {
     try { msg = JSON.parse(m.data); } catch { return; }
     if (msg.type === 'Begin') {
       this.sessionId = msg.id;
-      this.onStatus({ type: 'begin', id: msg.id, expiresAt: msg.expires_at });
+      if (this.config && msg.configuration?.mode) this.config.mode = msg.configuration.mode;
+      this.onStatus({ type: 'begin', id: msg.id, expiresAt: msg.expires_at, configuration: msg.configuration || null });
       return;
     }
     if (msg.type === 'Turn') {
-      const r = reduceTurn(this.state, msg);
+      const r = reduceTurn(this.state, msg, { formatTurns: this.formatTurns });
       this.state = r.state;
       if (r.event) this.onEvent(r.event);
       return;
@@ -70,6 +84,21 @@ export class StreamingSTT {
     }
   }
 
+  /**
+   * Tell 3.6 Pro what the agent is about to say and what to listen for next. No acknowledgement comes back;
+   * an invalid value would end the session, so updateConfigMessage() validates first.
+   * @returns {object|null} the message sent
+   */
+  updateConfig(listen) {
+    if (this.lang !== 'ko' || !this.ws || this.ws.readyState !== WebSocket.OPEN) return null;
+    const msg = updateConfigMessage(listen);
+    if (!msg) return null;
+    this.ws.send(JSON.stringify(msg));
+    this.config = { step: listen.step || null, mode: msg.mode || this.config?.mode || 'balanced', keyterms: (msg.keyterms_prompt || []).length, agent_context: msg.agent_context || '' };
+    this.onStatus({ type: 'config', config: this.config, message: msg });
+    return msg;
+  }
+
   forceEndpoint() {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: 'ForceEndpoint' }));
   }
@@ -79,8 +108,9 @@ export class StreamingSTT {
     if (!ws) return;
     if (ws.readyState === WebSocket.OPEN) {
       try { ws.send(JSON.stringify({ type: 'Terminate' })); } catch { /* ignore */ }
+      // wait for Termination (up to 5 s) so the last words are not lost
       await new Promise((resolve) => {
-        const t = setTimeout(() => { try { ws.close(); } catch { /* ignore */ } resolve(); }, 1500);
+        const t = setTimeout(() => { try { ws.close(); } catch { /* ignore */ } resolve(); }, 5000);
         ws.addEventListener('close', () => { clearTimeout(t); resolve(); }, { once: true });
       });
     } else {

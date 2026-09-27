@@ -27,6 +27,7 @@ import { mergeProfile } from './lib/extract.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const MAX_BODY = 40 * 1024 * 1024;
+const KO_MAX_SESSION_SECONDS = Math.min(1800, Math.max(60, Number(process.env.KO_MAX_SESSION_SECONDS) || 300));
 
 function json(res, status, body) {
   const data = JSON.stringify(body);
@@ -74,7 +75,7 @@ export function createApp({ assemblyai, mcp, llm, agent, staticDir = null, logge
       const [cat, mcpStatus] = await Promise.all([getCatalog(), mcpClient.status()]);
       return json(res, 200, {
         ok: true,
-        assemblyai: { configured: aai.enabled, streaming: { en: 'stream', ko: 'turn' }, note: aai.enabled ? null : 'ASSEMBLYAI_API_KEY missing: voice is disabled, type-to-chat still works' },
+        assemblyai: { configured: aai.enabled, streaming: { en: 'stream', ko: 'stream' }, models: { en: 'universal-3-5-pro', ko: 'universal-3-6-pro' }, note: aai.enabled ? null : 'ASSEMBLYAI_API_KEY missing: voice is disabled, type-to-chat still works' },
         llm: llmClient ? { configured: true, model: llmClient.model, state: llmClient.state } : { configured: false, mode: 'rules', note: 'LLM_API_KEY missing: rule-based consultant' },
         mcp: { url: mcpClient.url, reachable: mcpStatus.ok, serverInfo: mcpStatus.serverInfo || null, catalogSource: cat.source, products: cat.products.length, capturedAt: cat.capturedAt || null, error: mcpStatus.ok ? null : mcpStatus.error },
       });
@@ -83,7 +84,8 @@ export function createApp({ assemblyai, mcp, llm, agent, staticDir = null, logge
     if (m === 'GET' && url.pathname === '/api/assemblyai/token') {
       if (!aai.enabled) return json(res, 503, { error: 'no_key', message: 'ASSEMBLYAI_API_KEY is not configured on the server' });
       try {
-        const t = await aai.streamingToken({ expiresInSeconds: 60, maxSessionDurationSeconds: 1800 });
+        // Korean streaming sessions are capped (a consultation takes about 4 minutes)
+        const t = await aai.streamingToken({ expiresInSeconds: 60, maxSessionDurationSeconds: KO_MAX_SESSION_SECONDS });
         return json(res, 200, t);
       } catch (err) {
         logger.error?.(`[token] ${err.message}`);
@@ -105,8 +107,9 @@ export function createApp({ assemblyai, mcp, llm, agent, staticDir = null, logge
     if (m === 'POST' && url.pathname === '/api/session') {
       const body = await readJson(req);
       const lang = body.lang === 'en' ? 'en' : 'ko';
-      const s = ag.createSession({ lang });
-      return json(res, 200, { sessionId: s.id, lang, greeting: s.history[0].text });
+      const engine = ['realtime', 'voice-agent'].includes(body.engine) ? body.engine : 'text';
+      const s = ag.createSession({ lang, engine });
+      return json(res, 200, { sessionId: s.id, lang, engine, greeting: s.history[0].text, step: s.step, listen: s.listen });
     }
 
     if (parts[0] === 'api' && parts[1] === 'session' && parts[2]) {
@@ -115,7 +118,20 @@ export function createApp({ assemblyai, mcp, llm, agent, staticDir = null, logge
       const action = parts[3] || null;
 
       if (m === 'GET' && !action) {
-        return json(res, 200, { id: session.id, lang: session.lang, stage: session.stage, profile: session.profile, plan: session.plan, history: session.history, brief: session.brief || null, checkout: session.checkout || null });
+        return json(res, 200, { id: session.id, lang: session.lang, engine: session.engine, stage: session.stage, step: session.step, profile: session.profile, plan: session.plan, history: session.history, brief: session.brief || null, checkout: session.checkout || null, ledger: session.ledger.snapshot(), aaiSessionId: session.aaiSessionId });
+      }
+
+      if (m === 'GET' && action === 'ledger') {
+        return json(res, 200, { rows: session.ledger.snapshot() });
+      }
+
+      if (m === 'POST' && action === 'aai-session') {
+        // the Voice Agent session id from session.ready, so the receipt can fetch AssemblyAI's record of the call
+        const body = await readJson(req);
+        const id = String(body.aai_session_id || '').trim();
+        if (!/^[A-Za-z0-9_-]{6,80}$/.test(id)) return json(res, 400, { error: 'aai_session_id required' });
+        session.aaiSessionId = id;
+        return json(res, 200, { ok: true });
       }
 
       if (m === 'POST' && action === 'utterance') {

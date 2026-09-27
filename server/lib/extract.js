@@ -38,7 +38,7 @@ const EN_AREAS = { gangnam: '강남', seocho: '서초', songpa: '송파', jamsil
 
 export const PROBLEMS = [
   { key: 'new_open', ko: '신규 오픈', en: 'just opened', patterns: [/오픈|개업|새로 (차|열|시작)|창업|런칭|출시/, /just opened|new(ly)? open|opening|launch(ed|ing)?|just started|brand new/i] },
-  { key: 'low_traffic', ko: '손님·매출 부족', en: 'not enough customers', patterns: [/손님[이은도]?.{0,6}?(없|안 ?[와오]|적|줄)|매출[이은도]?.{0,6}?(떨어|줄|안 ?나|없)|한산|텅 ?비|사람[이은]?.{0,4}?없|장사가 ?안/,/no customers|not enough (customers|traffic|people|foot traffic)|slow|empty|sales (are |have )?(down|drop|fall)|fewer customers|nobody comes|dead/i] },
+  { key: 'low_traffic', ko: '손님·매출 부족', en: 'not enough customers', patterns: [/손님[이은도]?.{0,6}?(없|안 ?[와오]|적|줄)|매출[이은도]?.{0,6}?(떨어|줄|안 ?나|없)|한산|텅 ?비|사람[이은]?.{0,4}?없|장사가 ?안|(평일|주말|점심|저녁|오전|오후|낮|밤)[^.?!]{0,10}?(비어|비고|비는|비었|한가)/,/no customers|not enough (customers|traffic|people|foot traffic)|slow|empty|sales (are |have )?(down|drop|fall)|fewer customers|nobody comes|dead/i] },
   { key: 'reviews', ko: '리뷰 부족', en: 'few reviews', patterns: [/리뷰|후기|별점|평점|영수증/, /review|rating|stars/i] },
   { key: 'place_rank', ko: '플레이스·검색 노출', en: 'search / map visibility', patterns: [/플레이스|지도|노출|순위|검색(에|해도)? ?안|상위|랭킹|검색/, /naver place|google maps?|ranking|\brank\b|search results|visib|show(s|ing)? up|discover/i] },
   { key: 'instagram', ko: '인스타그램 성장', en: 'Instagram growth', patterns: [/인스타|팔로워|릴스|SNS|틱톡|유튜브/i, /instagram|followers|reels|social media|tiktok|youtube/i] },
