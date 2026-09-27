@@ -5,3 +5,7 @@ dist/
 *.log
 .DS_Store
 server/data/recordings/
+
+# internal research, CDP helpers and screenshots (never publish)
+docs/hackathon/
+scripts/probe/*.wav
