@@ -7,6 +7,83 @@
  * Korean sessions we fall back to keyword rules and frequency-based phrases.
  */
 import { extractProblems, problemLabel, detectLanguage } from './extract.js';
+import { moneyValues } from './amounts.js';
+
+function median(nums) {
+  const a = nums.filter((n) => Number.isFinite(n)).sort((x, y) => x - y);
+  if (!a.length) return null;
+  const m = Math.floor(a.length / 2);
+  return a.length % 2 ? a[m] : Math.round((a[m - 1] + a[m]) / 2);
+}
+
+function ownerRows(rows) {
+  return (rows || []).filter((r) => r.source === 'owner' && r.value_krw != null && r.status !== 'rejected');
+}
+
+/**
+ * The call receipt (Voice Agent path): check each amount in our ledger against AssemblyAI's own record of the
+ * session (Sessions API timeline). A row is matched when a user turn in the timeline states the same amount
+ * (parsed with the same parser); a record_budget tool call with that amount and no error is extra evidence.
+ * Also counts rejected tool calls and the median time to first audio.
+ *
+ * @param {Array} rows ledger rows (ledger.snapshot())
+ * @param {object} timeline Sessions API timeline artifact ({session_id, turns:[...]}; empty arrays are omitted)
+ */
+export function reconcile(rows, timeline) {
+  const turns = Array.isArray(timeline?.turns) ? timeline.turns : [];
+  const userTurns = turns.filter((t) => t.user_transcript);
+  const calls = turns.flatMap((t) => (t.tool_calls || []).map((c) => ({ ...c, turn_id: t.turn_id })));
+  const matched = [];
+  const unmatched = [];
+  for (const r of ownerRows(rows)) {
+    const byItem = r.item_id ? userTurns.find((t) => t.item_id === r.item_id && moneyValues(t.user_transcript).includes(r.value_krw)) : null;
+    const turn = byItem || userTurns.find((t) => moneyValues(t.user_transcript).includes(r.value_krw));
+    const call = calls.find((c) => c.name === 'record_budget' && !c.is_error && Number(c.arguments?.amount_krw) === r.value_krw);
+    const base = { row_id: r.id, value_krw: r.value_krw, status: r.status, label: r.label || null };
+    if (turn) matched.push({ ...base, turn_id: turn.turn_id, user_transcript: turn.user_transcript, user_confidence: turn.user_confidence ?? null, tool_call_id: call?.call_id || null, matched_by: byItem ? 'item_id' : 'amount' });
+    else unmatched.push({ ...base, reason: call ? 'tool_call_only' : 'not_in_timeline', tool_call_id: call?.call_id || null });
+  }
+  const confirmed = ownerRows(rows).filter((r) => r.status === 'confirmed').length;
+  return {
+    record: 'assemblyai_session',
+    session_id: timeline?.session_id || null,
+    confirmed_amounts: confirmed,
+    matched,
+    unmatched,
+    rejected_calls: calls.filter((c) => c.is_error || c.timed_out).length,
+    tool_calls: calls.length,
+    turns: turns.length,
+    median_time_to_first_audio_ms: median(turns.map((t) => t.time_to_first_audio_ms)),
+  };
+}
+
+/**
+ * The same receipt for the Korean path, where there is no Voice Agent session to fetch: rows are checked against
+ * the Universal-3.6 Pro final turns we received (heard), which are AssemblyAI's transcript of the call.
+ * @param {Array} rows ledger rows
+ * @param {Array<{item_id:string, text:string}>} heard final turns
+ */
+export function reconcileTurns(rows, heard) {
+  const matched = [];
+  const unmatched = [];
+  for (const r of ownerRows(rows)) {
+    const turn = (heard || []).find((h) => h.item_id === r.item_id && moneyValues(h.text).includes(r.value_krw)) || (heard || []).find((h) => moneyValues(h.text).includes(r.value_krw));
+    const base = { row_id: r.id, value_krw: r.value_krw, status: r.status, label: r.label || null };
+    if (turn) matched.push({ ...base, turn_id: turn.item_id, user_transcript: turn.text, matched_by: turn.item_id === r.item_id ? 'item_id' : 'amount' });
+    else unmatched.push({ ...base, reason: 'not_in_transcript' });
+  }
+  return {
+    record: 'streaming_turns',
+    session_id: null,
+    confirmed_amounts: ownerRows(rows).filter((r) => r.status === 'confirmed').length,
+    matched,
+    unmatched,
+    rejected_calls: (rows || []).filter((r) => r.source === 'owner' && r.status === 'rejected' && r.reason === 'range').length,
+    tool_calls: 0,
+    turns: (heard || []).length,
+    median_time_to_first_audio_ms: null,
+  };
+}
 
 const KO_STOP = new Set(['그리고', '그런데', '근데', '저는', '제가', '저희', '우리', '이제', '지금', '좀', '많이', '너무', '진짜', '정말', '그냥', '이거', '그거', '거기', '여기', '있어요', '없어요', '해요', '했어요', '하는데', '해서', '그래서', '근데요', '네', '예', '아니', '음', '어', '이게', '그게', '뭐', '것', '수', '등', '더', '또', '한', '그', '이', '저', '안', '못', '요', '입니다', '있습니다', '합니다', '싶어요', '같아요', '거예요', '건데', '이에요', '예요']);
 const EN_STOP = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'so', 'i', 'we', 'you', 'it', 'is', 'are', 'was', 'were', 'be', 'to', 'of', 'in', 'on', 'at', 'for', 'with', 'my', 'our', 'your', 'this', 'that', 'these', 'those', 'have', 'has', 'had', 'do', 'does', 'did', 'not', 'just', 'like', 'really', 'very', 'um', 'uh', 'yeah', 'okay', 'ok', 'about', 'there', 'here', 'from', 'as', 'me', 'us', 'they', 'them', 'its', "it's", "i'm", "we're", "don't", 'can', 'get', 'got', 'also', 'more', 'some', 'any', 'want', 'need', 'think', 'know']);

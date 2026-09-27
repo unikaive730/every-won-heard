@@ -8,7 +8,10 @@
  *   POST /api/session/:id/voice-turn         raw WAV body (Korean turn mode) -> transcript + agent reply
  *   POST /api/session/:id/analyze            raw WAV body (whole call) -> AssemblyAI speaker/sentiment/key-phrase brief
  *   POST /api/session/:id/checkout           {customerName, customerPhone?} -> MarketPilot card checkout link
- *   GET  /api/session/:id                    session snapshot (profile, plan, history, brief)
+ *   GET  /api/session/:id                    session snapshot (profile, plan, history, brief, ledger)
+ *   GET  /api/session/:id/ledger             money ledger rows (value, source, phrase, heard/read back/confirmed times)
+ *   POST /api/session/:id/aai-session        {aai_session_id} from the Voice Agent session.ready
+ *   GET  /api/session/:id/receipt            ledger checked against AssemblyAI's record of the call + LLM Gateway summary
  *   GET  /api/products                       catalog (live MCP or mock, with source)
  *   GET  /api/places?keyword=                Naver Place search through MCP
  */
@@ -21,7 +24,8 @@ import { createAssemblyAI } from './lib/assemblyai.js';
 import { createMcpClient } from './lib/mcp.js';
 import { createLlm } from './lib/llm.js';
 import { createAgent } from './lib/agent.js';
-import { buildBrief } from './lib/brief.js';
+import { buildBrief, reconcile, reconcileTurns } from './lib/brief.js';
+import { createGateway, templateCallSummary } from './lib/gateway.js';
 import { buildPlan, checkoutItems } from './lib/planner.js';
 import { mergeProfile } from './lib/extract.js';
 
@@ -60,10 +64,11 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; cha
 /**
  * Build the HTTP server with injectable dependencies (tests pass fakes).
  */
-export function createApp({ assemblyai, mcp, llm, agent, staticDir = null, logger = console } = {}) {
+export function createApp({ assemblyai, mcp, llm, agent, gateway, receiptPoll = { intervalMs: 5000, tries: 6 }, staticDir = null, logger = console } = {}) {
   const aai = assemblyai || createAssemblyAI({ logger });
   const mcpClient = mcp || createMcpClient({ logger });
   const llmClient = llm === undefined ? createLlm({ logger }) : llm;
+  const gw = gateway === undefined ? createGateway({ logger }) : gateway;
   const getCatalog = () => mcpClient.listProducts();
   const ag = agent || createAgent({ llm: llmClient, getCatalog, searchPlaces: (kw) => mcpClient.searchPlaces(kw), logger });
 
@@ -77,6 +82,7 @@ export function createApp({ assemblyai, mcp, llm, agent, staticDir = null, logge
         ok: true,
         assemblyai: { configured: aai.enabled, streaming: { en: 'stream', ko: 'stream' }, models: { en: 'universal-3-5-pro', ko: 'universal-3-6-pro' }, note: aai.enabled ? null : 'ASSEMBLYAI_API_KEY missing: voice is disabled, type-to-chat still works' },
         llm: llmClient ? { configured: true, model: llmClient.model, state: llmClient.state } : { configured: false, mode: 'rules', note: 'LLM_API_KEY missing: rule-based consultant' },
+        summary: gw ? { via: 'llm-gateway', model: gw.model, enabled: !gw.state.disabled } : { via: 'template', enabled: false },
         mcp: { url: mcpClient.url, reachable: mcpStatus.ok, serverInfo: mcpStatus.serverInfo || null, catalogSource: cat.source, products: cat.products.length, capturedAt: cat.capturedAt || null, error: mcpStatus.ok ? null : mcpStatus.error },
       });
     }
@@ -123,6 +129,31 @@ export function createApp({ assemblyai, mcp, llm, agent, staticDir = null, logge
 
       if (m === 'GET' && action === 'ledger') {
         return json(res, 200, { rows: session.ledger.snapshot() });
+      }
+
+      if (m === 'GET' && action === 'receipt') {
+        // Voice Agent calls: AssemblyAI's session record (Sessions API timeline; it exists only after the call ends,
+        // so poll up to 6 x 5 s). Korean calls: the Universal-3.6 Pro final turns we received.
+        if (session.receipt && !url.searchParams.has('refresh')) return json(res, 200, session.receipt);
+        const rows = session.ledger.snapshot();
+        let rec;
+        if (session.aaiSessionId) {
+          if (!aai.enabled) return json(res, 503, { error: 'no_key' });
+          try {
+            const { timeline, polls } = await aai.waitForTimeline(session.aaiSessionId, receiptPoll);
+            if (!timeline) return json(res, 202, { pending: true, polls, message: 'The session record is not ready yet.' });
+            rec = { ...reconcile(rows, timeline), polls };
+          } catch (err) {
+            logger.error?.(`[receipt] ${err.message}`);
+            return json(res, err.status === 404 ? 404 : 502, { error: err.code || 'receipt_failed', message: err.message });
+          }
+        } else {
+          rec = reconcileTurns(rows, session.grounding.heard);
+        }
+        // one summary per call (a refresh re-checks the record but does not call the model again)
+        if (!session.summary) session.summary = gw ? await gw.summarizeCall(session) : templateCallSummary(session);
+        session.receipt = { ...rec, summary: session.summary };
+        return json(res, 200, session.receipt);
       }
 
       if (m === 'POST' && action === 'aai-session') {

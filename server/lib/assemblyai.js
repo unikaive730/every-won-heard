@@ -11,6 +11,8 @@
 
 export const STREAMING_TOKEN_URL = 'https://streaming.assemblyai.com/v3/token';
 export const API_BASE = 'https://api.assemblyai.com/v2';
+// Voice Agent API: Sessions API (call record: config, audio, timeline). REST auth is the bare key.
+export const AGENTS_BASE = 'https://agents.assemblyai.com/v1';
 
 export function createAssemblyAI({ apiKey = process.env.ASSEMBLYAI_API_KEY || '', fetchImpl = globalThis.fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), logger = console } = {}) {
   const enabled = Boolean(apiKey && apiKey.trim());
@@ -112,5 +114,41 @@ export function createAssemblyAI({ apiKey = process.env.ASSEMBLYAI_API_KEY || ''
     return done;
   }
 
-  return { enabled, streamingToken, upload, transcribe, getTranscript };
+  /**
+   * GET /v1/sessions/{id}: status, config and artifacts (pre-signed audio / timeline / metadata URLs).
+   * Artifacts are empty until the session completes.
+   */
+  async function getAgentSession(id) {
+    requireKey();
+    const res = await fetchImpl(`${AGENTS_BASE}/sessions/${encodeURIComponent(id)}`, { headers: { Authorization: apiKey } });
+    if (!res.ok) {
+      const err = new Error(`AssemblyAI session request failed (${res.status})`);
+      err.status = res.status;
+      err.code = res.status === 404 ? 'session_not_found' : res.status === 401 ? 'bad_key' : 'session_failed';
+      throw err;
+    }
+    return res.json();
+  }
+
+  /**
+   * The call's timeline (turns with user_transcript, user_confidence, tool_calls, time_to_first_audio_ms).
+   * Polls until the session has completed and the timeline artifact exists. Artifact URLs are pre-signed:
+   * fetched with no Authorization header. Returns { session, timeline:null } if it never appears.
+   */
+  async function waitForTimeline(id, { intervalMs = 5000, tries = 6 } = {}) {
+    let session = null;
+    for (let i = 0; i < tries; i++) {
+      session = await getAgentSession(id);
+      const art = (session.artifacts || []).find((a) => a.type === 'timeline');
+      if (art?.url) {
+        const res = await fetchImpl(art.url);
+        if (!res.ok) throw Object.assign(new Error(`timeline download failed (${res.status})`), { status: res.status, code: 'timeline_failed' });
+        return { session, timeline: await res.json(), polls: i + 1 };
+      }
+      if (i < tries - 1) await sleep(intervalMs);
+    }
+    return { session, timeline: null, polls: tries };
+  }
+
+  return { enabled, streamingToken, upload, transcribe, getTranscript, getAgentSession, waitForTimeline };
 }
