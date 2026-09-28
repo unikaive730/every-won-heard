@@ -419,8 +419,8 @@ async function startCall() {
   setButtons('connecting');
   setState(t().connecting);
   try {
-    // Korean runs on the grounded path: amounts are read back and only a yes makes them the budget
-    const s = await api('/api/session', { method: 'POST', json: { lang: app.lang, engine: app.lang === 'ko' ? 'realtime' : 'text' } });
+    // Typed and Korean sessions run on the grounded path: amounts are read back and only a yes makes them the budget
+    const s = await api('/api/session', { method: 'POST', json: { lang: app.lang, engine: 'realtime' } });
     app.session = { id: s.sessionId, engine: s.engine, listen: s.listen || null, profile: {}, plan: null, brief: null, history: [{ role: 'agent', text: s.greeting }] };
     renderLedger(els.ledger, [], app.lang);
     app.ended = false;

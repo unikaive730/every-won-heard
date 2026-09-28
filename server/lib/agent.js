@@ -19,6 +19,8 @@ export const YES = [...CONFIRM, /^(맞아요|맞습니다|맞아|맞네요|그�
 export const NO = [/^(아니|아뇨|아니요|아니에요|틀려|틀렸|그게 아니)/, /^(no|nope|not quite|that'?s wrong|wrong)\b/i];
 // words that make an amount in the intake step a budget (a menu price is not)
 const BUDGET_CUE = /예산|마케팅|광고|한 ?달|월\s?\d|월\s?[일이삼사오육칠팔구십백]|매달|budget|marketing|spend|a month|per month|monthly/i;
+// a budget said in dollars: the grounded path plans in won and never converts, so it asks again
+const DOLLAR = /\$|\b(dollars?|usd|bucks)\b|달러/i;
 const ASK_PLAN = [/추천|제안|계획|플랜|뭐부터|어떻게 해야|알려 ?줘|알려 ?주세요|해야 ?할까/, /recommend|suggest|plan|what should|where (do|should) i start|how do i|tell me/i];
 
 export function greeting(lang) {
@@ -206,6 +208,10 @@ export function createAgent({ llm = null, getCatalog, searchPlaces = null, logge
         session.step = 'budget';
         reply = L('한 달 예산을 금액으로 말씀해 주세요. 예를 들면 30만 원처럼요.', 'What monthly budget should I plan for, as a number in won?');
       }
+    } else if (DOLLAR.test(clean) && (session.step !== 'intake' || BUDGET_CUE.test(clean))) {
+      // "$300 a month": the parser does not read dollars as won, and the grounded path never converts
+      if (!pending) session.step = 'budget';
+      reply = L('원화로 계획해 드립니다. 한 달에 원으로 얼마인지 말씀해 주세요.', 'I plan in won. What is that per month in won?');
     } else if (pending) {
       if (YES.some((re) => re.test(clean))) {
         session.ledger.confirm(pending.id, now);

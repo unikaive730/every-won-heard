@@ -22,7 +22,7 @@ export const I18N = {
     steps: { intake: '가게·동네', budget: '금액', confirm: '금액 확인', plan: '서비스', commit: '서비스' },
     heardAt: '들음', readBackAt: '되읽음', confirmedAt: '확인', rejectedAt: '거절', ledgerEmpty: '사장님이 금액을 말하면 여기에 근거와 함께 남습니다.',
     statusWord: { heard: '들음', read_back: '되읽음', confirmed: '확인', rejected: '받지 않음' },
-    checking: '통화 기록과 대조하는 중…', rConfirmed: (n) => `확정 금액 ${n}건`, rMatchedVa: (n) => `${n}건이 AssemblyAI 세션 기록과 일치`, rMatchedKo: (n) => `${n}건이 Universal-3.6 Pro 전사와 일치`,
+    checking: '통화 기록과 대조하는 중…', rConfirmed: (n) => `확정 금액 ${n}건`, rMatchedVa: (n) => `${n}건이 AssemblyAI 세션 기록과 일치`, rMatchedKo: (n) => `${n}건이 Universal-3.6 Pro 전사와 일치`, rMatchedTyped: (n) => `${n}건이 입력한 문장과 일치`,
     rRejectedVa: (n) => `툴 호출 거절 ${n}건`, rRejectedKo: (n) => `받지 않은 범위 ${n}건`, rUnmatched: '기록에서 찾지 못한 금액', rTtfa: '첫 음성까지 중앙값', summary: '통화 요약', nextStep: '다음 할 일', summaryTemplate: '템플릿(숫자는 원장에서)',
     latency: '말 끝 → 첫 음성', median: '중앙값', turns: (n) => `${n}턴`, wire: '이벤트', paused: '음성 데모가 잠시 멈춰 있습니다. 영상에서 전체 통화를 볼 수 있습니다.', pausedSub: '입력창은 계속 쓸 수 있습니다.', busy: '이 주소에서 통화가 너무 잦습니다. 1분 뒤 다시 해 주세요.',
     demoCheckout: '데모 결제 화면입니다. 결제는 일어나지 않습니다.', typing: '입력 상담입니다. 아래에 입력하세요.', planFrom: '카탈로그 가격으로 계산', interrupted: '끊김',
@@ -49,7 +49,7 @@ export const I18N = {
     steps: { intake: 'places', budget: 'money', confirm: 'money', plan: 'services', commit: 'services' },
     heardAt: 'heard', readBackAt: 'read back', confirmedAt: 'confirmed', rejectedAt: 'rejected', ledgerEmpty: 'Every amount the owner says lands here with its evidence.',
     statusWord: { heard: 'heard', read_back: 'read back', confirmed: 'confirmed', rejected: 'not accepted' },
-    checking: 'Checking against the call record…', rConfirmed: (n) => `${n} confirmed amount${n === 1 ? '' : 's'}`, rMatchedVa: (n) => `${n} matched to the AssemblyAI session record`, rMatchedKo: (n) => `${n} matched to the Universal-3.6 Pro transcript`,
+    checking: 'Checking against the call record…', rConfirmed: (n) => `${n} confirmed amount${n === 1 ? '' : 's'}`, rMatchedVa: (n) => `${n} matched to the AssemblyAI session record`, rMatchedKo: (n) => `${n} matched to the Universal-3.6 Pro transcript`, rMatchedTyped: (n) => `${n} matched to the owner's typed words`,
     rRejectedVa: (n) => `${n} tool call${n === 1 ? '' : 's'} rejected`, rRejectedKo: (n) => `${n} range${n === 1 ? '' : 's'} not accepted`, rUnmatched: 'Amounts not found in the record', rTtfa: 'median time to first audio', summary: 'Call summary', nextStep: 'Next step', summaryTemplate: 'template (numbers from the ledger)',
     latency: 'Speech end → first agent audio', median: 'median', turns: (n) => `${n} turn${n === 1 ? '' : 's'}`, wire: 'Events', paused: 'The voice demo is paused. The video shows a full call.', pausedSub: 'Typing still works.', busy: 'Too many calls from this address. Try again in a minute.',
     demoCheckout: 'Demo checkout. No payment is taken.', typing: 'Text session. Type below; the voice call uses Start call.', planFrom: 'priced from the catalog', interrupted: 'interrupted',
@@ -366,7 +366,8 @@ export function renderReceipt(el, rc, lang) {
   const t = I18N[lang];
   if (!rc) { el.innerHTML = `<span class="busy">${esc(t.checking)}</span>`; return; }
   const va = rc.record === 'assemblyai_session';
-  const line = [t.rConfirmed(rc.confirmed_amounts), (va ? t.rMatchedVa : t.rMatchedKo)(rc.matched.length), (va ? t.rRejectedVa : t.rRejectedKo)(rc.rejected_calls)].join(' · ');
+  const matchedLabel = va ? t.rMatchedVa : rc.record === 'typed_turns' ? t.rMatchedTyped : t.rMatchedKo;
+  const line = [t.rConfirmed(rc.confirmed_amounts), matchedLabel(rc.matched.length), (va ? t.rRejectedVa : t.rRejectedKo)(rc.rejected_calls)].join(' · ');
   const unmatched = rc.unmatched?.length ? `<div class="runm"><b>${esc(t.rUnmatched)}</b> ${rc.unmatched.map((u) => `₩${fmt(u.value_krw)}`).join(', ')}</div>` : '';
   const ttfa = rc.median_time_to_first_audio_ms != null ? `<small>${esc(t.rTtfa)} ${fmt(rc.median_time_to_first_audio_ms)} ms${rc.session_id ? ` · ${esc(rc.session_id)}` : ''}</small>` : '';
   const sm = rc.summary;

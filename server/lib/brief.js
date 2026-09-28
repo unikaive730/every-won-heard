@@ -106,8 +106,10 @@ export function reconcileTurns(rows, heard) {
     if (hit) matched.push({ ...base, turn_id: hit.turn.item_id, user_transcript: hit.prev ? `${hit.prev.text} ${hit.turn.text}` : hit.turn.text, matched_by: hit.byItem ? 'item_id' : hit.pair ? 'amount_two_turns' : 'amount' });
     else unmatched.push({ ...base, reason: 'not_in_transcript' });
   }
+  // a session where every turn was typed was checked against the typed words, not a transcript
+  const typed = (heard || []).length > 0 && heard.every((h) => h.via === 'text');
   return {
-    record: 'streaming_turns',
+    record: typed ? 'typed_turns' : 'streaming_turns',
     session_id: null,
     confirmed_amounts: ownerRows(rows).filter((r) => r.status === 'confirmed').length,
     matched,
