@@ -312,6 +312,8 @@ async function startAgentCall({ demo = false } = {}) {
     app.mic = null;
     teardownAudio();
     app.ended = true;
+    els.cardWire.hidden = true;
+    els.mode.textContent = '';
     if (err.pause) showPaused(err.pause);
     else if (err.name === 'NotAllowedError') addBubble(els.transcript, 'system', t().micDenied);
     else addBubble(els.transcript, 'system', `${app.lang === 'ko' ? '음성 통화를 시작하지 못했습니다' : 'Could not start the voice call'}: ${err.message}`);
@@ -333,6 +335,7 @@ function teardownAudio() {
 
 async function finishAgentCall(why) {
   if (app.finishing) return;
+  if (!app.va?.ready) return; // never connected: startAgentCall's catch shows why, there is nothing to reconcile
   app.finishing = true;
   app.ended = true;
   clearInterval(app.timer);
