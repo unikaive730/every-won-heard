@@ -1,12 +1,20 @@
 # Every Won Heard
 
+(The won is Korea's currency.)
+
+![A money ledger row for ₩480,000: heard, read back and confirmed, with the owner's words as the source](media/cover.png)
+
 **A voice marketing consultant for small shop owners, built on the AssemblyAI Voice Agent API.**
-The owner talks for about three minutes. The agent asks only for what's missing (the shop, the
+The owner talks for a few minutes. The agent asks only for what's missing (the shop, the
 neighborhood, the main problem, the monthly budget) and returns a priced 30-day plan drawn from
-MarketPilot's real service catalog, ending in a checkout link. Every amount on screen traces back to
-the owner's own words or to the catalog.
+MarketPilot's real service catalog, ending in a checkout link. Every amount in the ledger and the plan
+traces back to the owner's own words or to the catalog.
 
 Built for the lablab.ai x AssemblyAI Voice Agent Hackathon (September 2026). MIT licensed.
+
+Build log: first commit 2026-09-23; Voice Agent stages, grounding and receipt 2026-09-28 (see git
+history). The product catalog and checkout come from MarketPilot's existing MCP server
+(api.marketpilot.it/mcp), which predates the hackathon.
 
 **Live demo: https://everywon.marketpilot.it** (press *Watch a demo call* for a full scripted call with a
 synthesized caller, or *Start call* to talk to it; voice calls are limited per day, typing always works).
@@ -60,6 +68,7 @@ This started as a design choice and turned into a measured one:
 | Probe series, 8 short calls | "My monthly marketing budget is 480,000 won." against four tool sets with an `amount_krw` argument (typed integer, number, or string), and three tools with only string arguments (a note, the owner's words, the docs' weather example with its own question) | With an amount argument the tool call never arrived, whatever its JSON type, and the agent said nothing. Each string-only tool was called |
 | `scripts/probe/va-words-probe.mjs`, one 30.7 s call | the tool above; caller says "Maybe four or five hundred thousand won a month.", then "Four hundred eighty thousand won a month." | Both tool calls arrived about 0.4 s after `transcript.user`, with `owner_words` "400,000 or 500,000 won a month" and "Four hundred eighty thousand won a month". The server answered `ambiguous_amount` (options 400,000 and 500,000) with `is_error: true`, then 480,000. The agent asked which one, then read back "four hundred eighty thousand won a month" |
 | Full scripted call, twice: `npm run va:harness`, and the browser client's "Watch a demo call" in headless Chrome, both through `server/index.js` | caller lines C1 to C7 (the range, 480,000 with a pause in it, yes, a cut-in asking for 380,000 and 20% off, yes, go ahead, bye) | 11 tool calls each, all with words or enums only. The range was rejected; "Four hundred." and "Eighty thousand." came as two turns and were read together as 480,000, read back and confirmed; plan ₩478,000; the caller cut into the plan reading and the reply stopped 1.0 to 1.3 s later; 380,000 was read back, the discount declined, and confirmed; plan ₩379,000; demo checkout link. Receipt both times: 2 confirmed amounts, 2 matched to the Sessions API record, 2 of 11 tool calls rejected |
+| Recorded video take (session `sess_588a9af5a11e4b55bc915c5127fd3fe0`) | caller lines C1 to C7 in a synthesized voice, through the browser client and `server/index.js` | 10 tool calls, 1 rejected (the range); 480,000 and 380,000 read back and confirmed; receipt: 2 confirmed, 2 matched |
 
 So the only thing the model hands over is what the owner said. The number comes from our parser
 (`server/lib/amounts.js`), and the check runs on the server (`server/lib/grounding.js`):
@@ -157,7 +166,7 @@ the server rejected. Korean calls are checked against the Universal-3.6 Pro fina
 | **`agent_context` and `keyterms_prompt`** changed mid-call with `UpdateConfiguration` (the question the agent is about to ask, vocabulary for the stage) | `server/lib/listen.js`, `web/src/stt.js` | accepted silently; an invalid value closes the session (error 3006), so values are checked before sending. Audio messages must be 50 to 1000 ms (a 15 ms tail closed a session with 3007) |
 | **Sessions API** (`GET /v1/sessions/{id}`, timeline artifact) | `server/lib/assemblyai.js`, `server/lib/brief.js`, `GET /api/session/:id/receipt` | artifact ready 3.2 to 4.2 s after the session ended; timeline `item_id`s differ from `transcript.user`, so the receipt matches by amount |
 | **LLM Gateway** (`/v1/chat/completions`) for an optional post-call summary; the model only writes placeholders and the server fills every number from the ledger | `server/lib/gateway.js` | off by default (`CALL_SUMMARY=0`): the small model we could use broke the format, so the receipt uses a template |
-| Pre-recorded transcription (`/v2/transcript`) | `POST /api/session/:id/voice-turn` (Korean per-turn fallback), `/analyze` | kept as a fallback |
+| Pre-recorded transcription (`/v2/transcript`) | `POST /api/session/:id/analyze`: the whole-call analysis after a Korean call. A per-turn route (`/voice-turn`) is kept in the code but not wired as a fallback | |
 
 Cost at list price: the Voice Agent API is $4.50 per hour, so a four-minute consultation costs about
 $0.30 in voice infrastructure.
@@ -207,6 +216,11 @@ npm run build        # web app into dist/
 
 Without a key the app still runs: the page shows `no key` and the consultation works by typing. On
 your own machine `DEMO_MODE=0` (the default) shows the full catalog and turns the call limits off.
+
+Typed sessions in either language run on the same grounded path as Korean voice (engine `realtime`):
+an amount is read back and only a yes makes it the budget. The `text` engine (`server/lib/agent.js`;
+`server/lib/llm.js` only when `LLM_API_KEY` is set) is the older typed flow. It does not use the money
+ledger, and the web app no longer starts it.
 
 ### The public demo (https://everywon.marketpilot.it)
 
@@ -266,8 +280,9 @@ Every setting is described in `.env.example`.
 
 ## Tests
 
-`npm test` runs `node --test` over `server/test/` with no network and no keys (165 tests): the amount
-parser and grounding rules, the ledger and receipt, the stages and tool handlers, the browser client's
+`npm test` runs `node --test` over `server/test/` with no network and no keys (168 tests): the amount
+parser and grounding rules, typed English sessions on the grounded path (a range rejected, a budget only
+after the read-back and a yes, dollars not converted), the ledger and receipt, the stages and tool handlers, the browser client's
 tool relay ordering and demo caller pacing,
 the planner (total <= budget for every budget from ₩10,000 to ₩3,000,000, allowlist only, no platform
 names in anything spoken or shown), the guard (per-IP and daily limits, refunds, pause switch, proxy
@@ -281,12 +296,19 @@ audio needs a real browser and a key and is checked with the probes.
 - The Korean path is half-duplex: the owner cannot interrupt the browser's voice.
 - The caller in our demo video and probes is synthesized; accuracy on real owners' voices, kitchen noise
   and accents is not measured yet.
+- On Korean and typed sessions, the read-back time is when the server writes the read-back reply, not
+  when the voice finishes saying it, so it can equal the time the amount was heard.
+- The grounded path plans in won only. A budget said in dollars is not converted; the agent asks for
+  the amount in won.
 
 ## Disclosure
 
-Built with an AI coding assistant (Claude Code); caller voice and narration are synthesized. The probe
-and demo caller lines are made with the Windows built-in voices (Microsoft Zira for English, Microsoft
-Heami for Korean). The agent, transcription, tools and prices in the demo are live.
+Built with an AI coding assistant (Claude Code). In the demo video, the English and Korean callers, the
+narration and the Korean consultant voice were generated with OpenAI gpt-4o-mini-tts; the app itself
+does not call it. The public demo's "Watch a demo call" plays English caller lines made with the
+Windows built-in voice Microsoft Zira, so it sounds different from the video. The Korean probe lines
+(scripts/probe, K1 to K3) use Microsoft Heami. The agent, transcription, tools and prices are live in
+both.
 
 ## License
 
