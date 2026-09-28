@@ -6,10 +6,13 @@
  *   upload   audio sent for transcription (Korean per-turn fallback, whole-call analysis)
  *   session  new consultations (memory only, no credit): a looser per-IP limit
  *
- * VOICE_DEMO_ENABLED=0 pauses every voice route at once (typing keeps working), for when the credit
- * runs out or a bill looks wrong. Counters live in memory and reset at 00:00 UTC; a restart resets
- * them too, so the account balance stays the last line of defence.
+ * The limits are on in the public deployment (DEMO_MODE=1) and off on a developer's machine;
+ * VOICE_GUARD=1 or 0 forces them either way. VOICE_DEMO_ENABLED=0 pauses every voice route at once
+ * in any mode (typing keeps working), for when the credit runs out or a bill looks wrong.
+ * Counters live in memory and reset at 00:00 UTC; a restart resets them too, so the account
+ * balance stays the last line of defence.
  */
+import { isDemoMode } from './demo.js';
 
 export const PAUSED_MESSAGE = 'The voice demo is paused. The video shows a full call. You can still type to the consultant.';
 export const CAP_MESSAGE = "Today's voice demo calls are used up. The video shows a full call. You can still type to the consultant.";
@@ -22,6 +25,11 @@ export const DEFAULT_LIMITS = {
   session: { perMinute: 20, perDay: 300, dailyCap: Infinity },
 };
 
+function forced(v) {
+  const s = String(v ?? '').trim();
+  return s === '1' ? true : s === '0' ? false : null;
+}
+
 function intOr(v, fallback) {
   const n = Number.parseInt(String(v ?? '').trim(), 10);
   return Number.isFinite(n) && n >= 0 ? n : fallback;
@@ -30,7 +38,7 @@ function intOr(v, fallback) {
 /** Guard options from the environment. */
 export function guardOptionsFromEnv(env = process.env) {
   return {
-    limitsOn: String(env.VOICE_GUARD ?? '1').trim() !== '0',
+    limitsOn: forced(env.VOICE_GUARD) ?? isDemoMode(env),
     voiceEnabled: String(env.VOICE_DEMO_ENABLED ?? '1').trim() !== '0',
     limits: { ...DEFAULT_LIMITS, voice: { ...DEFAULT_LIMITS.voice, dailyCap: intOr(env.DAILY_SESSION_CAP, DEFAULT_LIMITS.voice.dailyCap) } },
     trustProxyHops: intOr(env.TRUST_PROXY_HOPS, 0),

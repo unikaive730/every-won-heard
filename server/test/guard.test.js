@@ -70,7 +70,7 @@ test('VOICE_DEMO_ENABLED=0 pauses voice and uploads, never new text sessions', (
   assert.equal(g.status().enabled, false);
 });
 
-test('VOICE_GUARD=0 turns the limits off (local development) but not the pause switch', () => {
+test('limits off (local development) still honours the pause switch', () => {
   const g = createGuard({ limitsOn: false });
   for (let i = 0; i < 50; i++) assert.equal(g.take('127.0.0.1', 'voice').ok, true);
   assert.equal(g.status().limits, null);
@@ -85,8 +85,12 @@ test('buckets are separate: uploads and sessions do not use up calls', () => {
   assert.equal(g.status().used_today, 1);
 });
 
-test('guardOptionsFromEnv: defaults and overrides', () => {
-  const d = guardOptionsFromEnv({});
+test('guardOptionsFromEnv: limits follow DEMO_MODE unless VOICE_GUARD forces them; other defaults', () => {
+  assert.equal(guardOptionsFromEnv({}).limitsOn, false, 'a developer machine');
+  assert.equal(guardOptionsFromEnv({ DEMO_MODE: '1' }).limitsOn, true, 'the public deployment');
+  assert.equal(guardOptionsFromEnv({ DEMO_MODE: '1', VOICE_GUARD: '0' }).limitsOn, false);
+  assert.equal(guardOptionsFromEnv({ VOICE_GUARD: '1' }).limitsOn, true);
+  const d = guardOptionsFromEnv({ DEMO_MODE: '1' });
   assert.equal(d.limitsOn, true);
   assert.equal(d.voiceEnabled, true);
   assert.equal(d.limits.voice.dailyCap, 25);
