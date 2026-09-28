@@ -202,7 +202,8 @@ export function createApp({ assemblyai, mcp, llm, agent, gateway, tools, receipt
       }
 
       if (m === 'POST' && action === 'tool') {
-        // tool.call relayed at reply.done. result is a JSON string for tool.result as is
+        // tool.call relayed at reply.done. Send session_update (if state_changed) first, then tool.result with
+        // result (a JSON string) as is
         if (session.engine !== 'voice-agent') return json(res, 400, { error: 'not_voice_agent_session' });
         const body = await readJson(req);
         const name = String(body.name || '').trim();

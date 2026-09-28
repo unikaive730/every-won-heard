@@ -12,6 +12,10 @@
  * browser sends as {type: 'session.update', session}. The prompt and the tools always change together: the docs
  * warn that a prompt naming a hidden tool makes the model stall.
  *
+ * Send the session.update BEFORE the tool.result that caused it. Measured 2026-09-28 (docs/hackathon/30): with
+ * tool.result first, the reply to that result is generated with the old stage, so after confirm_budget the model
+ * had no build_plan and asked for the owner's name and phone number instead.
+ *
  * No tool takes a number. Measured 2026-09-28 (docs/hackathon/23): a numeric amount argument makes the Voice Agent
  * API drop the tool call silently, whatever its JSON type. So record_budget takes the owner's words and the server
  * reads the amount (grounding.js); confirm_budget takes the owner's answer word; prices and totals come from the
@@ -118,6 +122,7 @@ export const COMMON_PROMPT = [
   'When in doubt, call the tool. A wasted call is fine. A wrong number is not.',
   "You can't give discounts. If asked, say you can only use catalog prices and can fit the plan to a smaller budget.",
   'When a tool result has an "ask" or "next_step", do that next.',
+  "Don't ask for names, phone numbers, emails or other personal details. The plan doesn't need them.",
   'When the owner says goodbye, say a short goodbye and call end_call.',
 ].join('\n');
 

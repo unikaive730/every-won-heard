@@ -1,9 +1,12 @@
 /**
  * Tool relay for the Voice Agent API path (design 6-4). The browser receives tool.call, waits for reply.done,
- * posts the call here, and sends back what we return:
+ * posts the call here, and sends back what we return, in this order:
  *
- *   {type: 'tool.result', call_id, result, is_error}      result is already a JSON string
  *   {type: 'session.update', session: session_update}     when state_changed (tools + system prompt + input)
+ *   {type: 'tool.result', call_id, result, is_error}      result is already a JSON string
+ *
+ * The update goes first so the reply to the result already has the next stage's tools (measured: the other
+ * order left the model without build_plan after confirm_budget).
  *
  * The server owns every number. The model only passes words:
  *   record_shop            enums + the neighborhood                      s0 -> s1
