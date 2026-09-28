@@ -119,6 +119,7 @@ let lineIdx = 0;
 let planReplyNext = false;
 let endAfterReply = false;
 let fallback = null;
+let doneTimer = null;
 let bargeStartedAt = null;
 
 function send(obj) { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); }
@@ -145,7 +146,8 @@ function play(id, why = 'turn') {
 function onReplyFinished() {
   if (endAfterReply) { setTimeout(() => end('end_call'), 800); return; }
   const id = LINES[lineIdx];
-  if (!id) { setTimeout(() => end('script_done'), 2500); return; }
+  // after the last line, give the agent 8 s to call end_call (its goodbye ends the call) before hanging up
+  if (!id) { clearTimeout(doneTimer); doneTimer = setTimeout(() => end('script_done'), 8000); return; }
   const p = PLAN[id] || { when: () => true };
   if (p.bargeInMs) return; // waits for the plan reply to start
   if (p.when(h)) { setTimeout(() => play(id), 700); return; }
@@ -215,6 +217,7 @@ ws.onmessage = async (e) => {
     lastEvent = type;
     replyAudio = false;
     clearTimeout(fallback);
+    clearTimeout(doneTimer);
     if (planReplyNext && PLAN[LINES[lineIdx]]?.bargeInMs) {
       planReplyNext = false;
       const id = LINES[lineIdx];
