@@ -47,7 +47,7 @@ test('GET /api/health reports missing key, rules mode and mock catalog', async (
   assert.equal(j.llm.configured, false);
   assert.equal(j.mcp.catalogSource, 'mock');
   assert.equal(j.mcp.reachable, false);
-  assert.ok(j.mcp.products > 100);
+  assert.equal(j.mcp.products, 6, "the committed snapshot is the demo allowlist");
 });
 
 test('GET /api/assemblyai/token -> 503 no_key without a key, token with one', async () => {

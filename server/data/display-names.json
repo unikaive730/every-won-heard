@@ -1,0 +1,56 @@
+{
+  "_meta": {
+    "note": "Products the public demo may show (DEMO_MODE=1), with the generic names used on screen and in speech. Catalog IDs are MarketPilot catalog IDs; prices always come from the catalog, never from this file. No brand names.",
+    "updated": "2026-09-28"
+  },
+  "products": [
+    {
+      "productId": 282,
+      "group": "listing",
+      "en": "Map listing audit report",
+      "ko": "지도 매장정보 진단 보고서",
+      "spoken_en": ["map listing audit report", "map listing audit reports"],
+      "unit_ko": "건"
+    },
+    {
+      "productId": 142,
+      "group": "press",
+      "en": "Press release, basic",
+      "ko": "보도자료 배포(베이직)",
+      "spoken_en": ["basic press release", "basic press releases"],
+      "unit_ko": "건"
+    },
+    {
+      "productId": 251,
+      "group": "print",
+      "en": "Flyer design and print",
+      "ko": "전단지 제작",
+      "spoken_en": ["flyer design and print job", "flyer design and print jobs"],
+      "unit_ko": "건"
+    },
+    {
+      "productId": 106,
+      "group": "blog",
+      "en": "Sponsored blog post by a recruited blogger",
+      "ko": "블로거 섭외 후기 글",
+      "spoken_en": ["blog post by a recruited blogger", "blog posts by recruited bloggers"],
+      "unit_ko": "건"
+    },
+    {
+      "productId": 249,
+      "group": "print",
+      "en": "Poster design and print",
+      "ko": "포스터 제작",
+      "spoken_en": ["poster design and print job", "poster design and print jobs"],
+      "unit_ko": "건"
+    },
+    {
+      "productId": 112,
+      "group": "photo",
+      "en": "Photo retouching, per image",
+      "ko": "사진 보정",
+      "spoken_en": ["retouched photo", "retouched photos"],
+      "unit_ko": "장"
+    }
+  ]
+}
