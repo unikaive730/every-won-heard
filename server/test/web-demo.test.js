@@ -132,3 +132,29 @@ test('director: finishes after the last line even if the agent stays quiet', () 
   const { played } = run([...spoken(0), [1000, 'playback.drained'], [2500, 'tick'], [3000, 'line.ended', {}], [5000, 'tick'], [11500, 'tick']], lines);
   assert.deepEqual(played, ['A', 'done']);
 });
+
+test('director: a spoken reply that also called a tool waits for the reply that follows the result (live run 3)', () => {
+  const { played } = run([
+    ...spoken(0), [1000, 'playback.drained'], [2500, 'tick'], // C1
+    [3000, 'line.ended', {}],
+    [4000, 'reply.started', {}], [4100, 'reply.audio', {}], [4200, 'tool.call', {}], [4400, 'reply.done', { status: 'completed', reply_id: 'resp_9' }],
+    [4500, 'tool.settled', { name: 'record_shop', sent: true }], [4600, 'playback.drained'],
+    [4640, 'reply.started', {}], [4800, 'reply.audio', {}], [5200, 'tick'], [5700, 'tick'],
+    [6500, 'playback.drained'], [7000, 'tick'], // a gap in the audio, the reply is still going
+  ]);
+  assert.deepEqual(played, ['C1'], 'no C2a while the post-tool reply is still being spoken');
+});
+
+test('director: after the last line, done waits while the agent is still talking (live run 3 ended mid-plan)', () => {
+  const lines = [{ id: 'A', text: 'a' }];
+  const { played } = run([
+    ...spoken(0), [1000, 'playback.drained'], [2500, 'tick'], // A
+    [3000, 'line.ended', {}],
+    [7000, 'reply.started', {}], [7200, 'tool.call', {}], [7400, 'reply.done', { status: 'completed', reply_id: 'r2' }], [7500, 'tool.settled', { name: 'build_plan', sent: true }],
+    [7600, 'reply.started', {}], [7800, 'reply.audio', {}], [11500, 'tick'], [14000, 'tick'],
+    [15000, 'reply.done', { status: 'completed', reply_id: 'r3' }], [15100, 'tick'], [18000, 'playback.drained'], [18100, 'tick'],
+  ], lines);
+  assert.deepEqual(played, ['A', 'done']);
+  const r = run([...spoken(0), [1000, 'playback.drained'], [2500, 'tick'], [3000, 'line.ended', {}], [7600, 'reply.started', {}], [7800, 'reply.audio', {}], [16000, 'tick']], lines);
+  assert.deepEqual(r.played, ['A'], 'not done while the reply is in progress');
+});

@@ -79,6 +79,7 @@ export function createDirector(lines, { settleMs = 1000, fallbackMs = 20000, end
     agentDone: false, // an agent reply was spoken and completed since the last caller line
     drained: true, // agent audio finished playing locally
     replyAudio: false, // the current reply produced audio
+    replying: false, // between reply.started and reply.done
     busyTools: 0, // tool calls collected or being relayed
     settleAt: null, // when the settle pause ends
     lastToolSent: null, // name of the last tool whose result went back to the agent
@@ -111,8 +112,9 @@ export function createDirector(lines, { settleMs = 1000, fallbackMs = 20000, end
     if (st.finished) return [];
     const line = current();
     if (!line) {
-      // after the last line: finish once the agent has answered it, or after endAfterMs of quiet
-      if (!st.playing && ((st.agentDone && st.drained && st.busyTools === 0) || (st.endAt != null && now >= st.endAt))) {
+      // after the last line: finish once the agent has answered it, or after endAfterMs with the agent quiet
+      const quiet = !st.playing && !st.replying && st.drained && st.busyTools === 0;
+      if (quiet && (st.agentDone || (st.endAt != null && now >= st.endAt))) {
         st.finished = true;
         return [{ cmd: 'done' }];
       }
@@ -138,6 +140,9 @@ export function createDirector(lines, { settleMs = 1000, fallbackMs = 20000, end
       switch (type) {
         case 'reply.started':
           st.replyAudio = false;
+          st.replying = true;
+          st.agentDone = false; // only the latest reply counts (a spoken reply can carry a tool call, then another reply follows)
+          if (st.endAt != null) st.endAt = now + endAfterMs; // the agent is still answering the last line
           st.settleAt = null; // the agent is talking again: no caller line yet
           st.idleSince = null;
           if (current()?.bargeIn && st.lastToolSent === current().bargeIn.afterTool && st.armedAt == null && !st.playing) {
@@ -149,11 +154,13 @@ export function createDirector(lines, { settleMs = 1000, fallbackMs = 20000, end
           st.drained = false;
           break;
         case 'reply.done':
+          st.replying = false;
           if (data.status === 'completed' && st.replyAudio && !String(data.reply_id || '').startsWith('fc-')) st.agentDone = true;
           if (data.status === 'interrupted') st.armedAt = null;
           break;
         case 'tool.call':
           st.busyTools += 1;
+          if (st.endAt != null) st.endAt = now + endAfterMs;
           st.settleAt = null;
           break;
         case 'tool.settled': // result sent or dropped

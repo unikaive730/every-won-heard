@@ -31,6 +31,7 @@ export class DemoCaller {
     this.current = null; // {id, samples, offset}
     this.silence = new Int16Array(FRAME_SAMPLES);
     this.unsubs = [];
+    this.stats = { pumps: 0, frames: 0, maxBurst: 0, bursts: 0, maxGapMs: 0, last: null }; // pacing health, reported on stop
   }
 
   /** Fetch and check every line before the call starts (a missing WAV must not cost a paid session). */
@@ -71,6 +72,13 @@ export class DemoCaller {
   /** Send every frame that is due by the wall clock: the current line, or silence between lines. */
   pump(t) {
     const n = this.pacer.due(t);
+    const st = this.stats;
+    if (st.last != null) st.maxGapMs = Math.max(st.maxGapMs, Math.round(t - st.last));
+    st.last = t;
+    st.pumps += 1;
+    st.frames += n;
+    if (n > 1) st.bursts += 1;
+    st.maxBurst = Math.max(st.maxBurst, n);
     for (let i = 0; i < n; i++) {
       let frame = this.silence;
       const c = this.current;
@@ -106,6 +114,7 @@ export class DemoCaller {
   }
 
   stop() {
+    if (this.timer) this.onEvent('stats', { ...this.stats, last: undefined });
     clearInterval(this.timer);
     this.timer = null;
     for (const u of this.unsubs) u();
