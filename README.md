@@ -56,6 +56,7 @@ This started as a design choice and turned into a measured one:
 |---|---|---|
 | Probe series, 8 short calls | "My monthly marketing budget is 480,000 won." against four tool sets with an `amount_krw` argument (typed integer, number, or string), and three tools with only string arguments (a note, the owner's words, the docs' weather example with its own question) | With an amount argument the tool call never arrived, whatever its JSON type, and the agent said nothing. Each string-only tool was called |
 | `scripts/probe/va-words-probe.mjs`, one 30.7 s call | the tool above; caller says "Maybe four or five hundred thousand won a month.", then "Four hundred eighty thousand won a month." | Both tool calls arrived about 0.4 s after `transcript.user`, with `owner_words` "400,000 or 500,000 won a month" and "Four hundred eighty thousand won a month". The server answered `ambiguous_amount` (options 400,000 and 500,000) with `is_error: true`, then 480,000. The agent asked which one, then read back "four hundred eighty thousand won a month" |
+| Full scripted call, twice: `npm run va:harness`, and the browser client's "Watch a demo call" in headless Chrome, both through `server/index.js` | caller lines C1 to C7 (the range, 480,000 with a pause in it, yes, a cut-in asking for 380,000 and 20% off, yes, go ahead, bye) | 11 tool calls each, all with words or enums only. The range was rejected; "Four hundred." and "Eighty thousand." came as two turns and were read together as 480,000, read back and confirmed; plan ₩478,000; the caller cut into the plan reading and the reply stopped 1.0 to 1.3 s later; 380,000 was read back, the discount declined, and confirmed; plan ₩379,000; demo checkout link. Receipt both times: 2 confirmed amounts, 2 matched to the Sessions API record, 2 of 11 tool calls rejected |
 
 So the only thing the model hands over is what the owner said. The number comes from our parser
 (`server/lib/amounts.js`), and the check runs on the server (`server/lib/grounding.js`):
@@ -248,8 +249,9 @@ Every setting is described in `.env.example`.
 
 ## Tests
 
-`npm test` runs `node --test` over `server/test/` with no network and no keys (114 tests on this
-branch): the amount parser and grounding rules, the ledger and receipt, the stages and tool handlers,
+`npm test` runs `node --test` over `server/test/` with no network and no keys (165 tests): the amount
+parser and grounding rules, the ledger and receipt, the stages and tool handlers, the browser client's
+tool relay ordering and demo caller pacing,
 the planner (total <= budget for every budget from ₩10,000 to ₩3,000,000, allowlist only, no platform
 names in anything spoken or shown), the guard (per-IP and daily limits, refunds, pause switch, proxy
 addresses), the demo checkout page, and the HTTP routes on a real server with fake upstreams. Browser
