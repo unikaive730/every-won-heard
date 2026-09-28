@@ -1,6 +1,7 @@
 # Generates the probe caller lines as mono PCM16 WAV with the Windows built-in voices
 # (ko-KR: Microsoft Heami, en-US: Microsoft Zira). Text comes from voice-lines.json (UTF-8),
-# so this file stays ASCII and works in Windows PowerShell 5.1.
+# so this file stays ASCII and works in Windows PowerShell 5.1. A line with "ssml" is spoken from SSML
+# (pauses with <break>).
 #   powershell -ExecutionPolicy Bypass -File scripts/probe/make-voice-lines.ps1
 Add-Type -AssemblyName System.Speech
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -15,7 +16,7 @@ foreach ($line in $json.lines) {
   $fmt = New-Object System.Speech.AudioFormat.SpeechAudioFormatInfo([int]$line.rate, [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen, [System.Speech.AudioFormat.AudioChannel]::Mono)
   $out = Join-Path $here ("$($line.id).wav")
   $synth.SetOutputToWaveFile($out, $fmt)
-  $synth.Speak([string]$line.text)
+  if ($line.ssml) { $synth.SpeakSsml([string]$line.ssml) } else { $synth.Speak([string]$line.text) }
   $synth.SetOutputToNull()
   $size = (Get-Item $out).Length
   Write-Output ("{0} {1} {2} Hz {3} bytes {4:N1} s" -f $line.id, $v.Name, $line.rate, $size, (($size - 44) / (2 * [int]$line.rate)))

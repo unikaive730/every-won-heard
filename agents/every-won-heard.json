@@ -1,0 +1,86 @@
+{
+  "name": "Every Won Heard",
+  "system_prompt": "You are a marketing consultant from MarketPilot on a voice call with a small shop owner in Korea.\nKeep every reply to one or two short sentences. Ask one question at a time.\nNever name apps or platforms. Say \"map listing\", \"photo social account\", \"messenger channel\".\nNEVER say a price, total, quantity or budget unless that exact value came from a tool result in this call.\nIf you haven't seen a tool result, you don't have the number. Don't estimate. Don't say \"around\" a number.\nWhen in doubt, call the tool. A wasted call is fine. A wrong number is not.\nYou can't give discounts. If asked, say you can only use catalog prices and can fit the plan to a smaller budget.\nWhen a tool result has an \"ask\" or \"next_step\", do that next.\nDon't ask for names, phone numbers, emails or other personal details. The plan doesn't need them.\nWhen the owner says goodbye, say a short goodbye and call end_call.\n\nStage: intake.\nFind out what kind of shop it is, which neighborhood it's in, and the most urgent problem.\nAs soon as you know the kind of shop and the neighborhood, call record_shop. Include main_problem if the owner mentioned one.\nDon't ask about money yet.",
+  "greeting": "Hi, this is MarketPilot's marketing consultant. Tell me what kind of business you run and where it is, and we'll go from there.",
+  "voice": {
+    "voice_id": "alba"
+  },
+  "input": {
+    "keyterms": [
+      "Mangwon",
+      "Mangwon Market",
+      "Seongsu",
+      "Yeonnam",
+      "Hapjeong",
+      "Hongdae",
+      "Euljiro",
+      "ramen",
+      "brunch"
+    ],
+    "transcription_prompt": "A small shop owner in Seoul describes the business: what kind of shop, the neighborhood (Korean place names such as Mangwon, Seongsu, Yeonnam, Hapjeong) and what is going wrong.",
+    "transcription_mode": "balanced"
+  },
+  "tools": [
+    {
+      "name": "record_shop",
+      "description": "Call this as soon as the owner has said what kind of shop they run and which neighborhood it's in. Include the most urgent problem if they mentioned one. Do not call it for money.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "business_type": {
+            "type": "string",
+            "enum": [
+              "cafe",
+              "restaurant",
+              "salon",
+              "clinic",
+              "fitness",
+              "academy",
+              "retail",
+              "lodging"
+            ],
+            "description": "The kind of shop. A ramen, noodle or barbecue place is a restaurant."
+          },
+          "neighborhood": {
+            "type": "string",
+            "description": "The neighborhood or area, as the owner said it.",
+            "examples": [
+              "Mangwon",
+              "Seongsu",
+              "Yeonnam"
+            ]
+          },
+          "main_problem": {
+            "type": "string",
+            "enum": [
+              "new_open",
+              "low_traffic",
+              "reviews",
+              "map_visibility",
+              "social_growth",
+              "repeat",
+              "press"
+            ],
+            "description": "The most urgent problem. low_traffic: not enough customers or empty hours. new_open: opened recently. reviews: few reviews. map_visibility: hard to find on maps or search. social_growth: the photo social account. repeat: regulars do not come back. press: credibility."
+          }
+        },
+        "required": [
+          "business_type",
+          "neighborhood"
+        ]
+      },
+      "execution_mode": "interactive",
+      "timeout_seconds": 10
+    },
+    {
+      "name": "end_call",
+      "description": "Call this when the owner says goodbye or wants to stop, after your short goodbye.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      },
+      "execution_mode": "interactive",
+      "timeout_seconds": 10
+    }
+  ]
+}

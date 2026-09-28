@@ -20,7 +20,7 @@ import { parseAmounts, koreanShort } from './amounts.js';
 export const GATEWAY_URL = 'https://llm-gateway.assemblyai.com/v1/chat/completions';
 export const DEFAULT_SUMMARY_MODEL = 'qwen3.5-4b-32k-fast';
 const PLACEHOLDERS = ['{budget}', '{plan_total}', '{line_count}'];
-const BRANDS = /네이버|인스타|카카오|배민|배달의민족|쿠팡|요기요|구글|유튜브|틱톡|naver|instagram|kakao|google|youtube|tiktok|baemin|coupang|yogiyo/i;
+export const BRANDS = /네이버|인스타|카카오|배민|배달의민족|쿠팡|요기요|구글|유튜브|틱톡|naver|instagram|kakao|google|youtube|tiktok|baemin|coupang|yogiyo/i;
 
 // generic names for problems and tried channels (the planner's labels still carry platform names)
 const PROBLEM_WORDS = {
