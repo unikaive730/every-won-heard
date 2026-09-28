@@ -128,14 +128,14 @@
 
     async agentMove(k) {
       const words = USER[k];
-      if (k === 0) { await this.call('record_shop', { business_type: 'restaurant', neighborhood: 'Mangwon', main_problem: 'low_traffic' }); return this.say('Got it. What monthly marketing budget should I plan for, in won?', 2000); }
+      if (k === 0) { await this.call('record_shop', { shop_words: 'a small ramen place', neighborhood: 'Mangwon Market' }); return this.say('Got it. What monthly marketing budget should I plan for, in won?', 2000); }
       if (k === 1 || k === 2 || k === 4) {
-        const r = await this.call('record_budget', { owner_words: words.replace(/^(Maybe|Wait\.)\s*/i, ''), period: 'monthly' });
+        const r = await this.call('record_budget', { owner_words: words.replace(/^(Maybe|Wait\.)\s*/i, '') });
         if (r.is_error) return this.say(r.parsed.options ? `Which one should I plan for, ${r.parsed.options.join(' or ')}?` : 'Sorry, what monthly budget should I plan for?', 2400);
         return this.say(`${k === 4 ? "I can only use catalog prices, but I can fit the plan to a smaller budget. " : ''}${r.parsed.read_back}, is that right?`, k === 4 ? 4200 : 2400);
       }
       if (k === 3 || k === 5) {
-        await this.call('confirm_budget', { confirmed: true });
+        await this.call('confirm_budget', { owner_answer: USER[k] });
         const p = await this.call('build_plan', {});
         const lines = (p.parsed.lines || []).map((l) => `${l.qty} ${l.name}`).join(', ');
         return this.say(`Here is the plan: ${lines}. The total is ${p.parsed.spoken_total}. Want the checkout link?`, k === 3 ? 8000 : 4000);

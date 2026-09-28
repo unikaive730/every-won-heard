@@ -36,11 +36,12 @@ const COMMON = [
   'Never name apps or platforms. Say "map listing", "photo social account", "messenger channel".',
   'NEVER say a price, total, quantity or budget unless that exact value came from a tool result in this call. If you have not seen a tool result, you do not have the number. Do not estimate. Do not say "around" a number. When in doubt, call the tool. A wasted call is fine. A wrong number is not.',
   "You can't give discounts. If asked, say you can only use catalog prices and can fit the plan to a smaller budget.",
+  'The number rule is about what YOU say. When the owner says an amount, that is fine: pass their words to the tool that takes them.',
   'When the owner says goodbye or thanks you at the end, call end_call.',
 ].join('\n');
 
 const STAGE_PROMPT = {
-  s0: 'Find out what kind of shop they run, the neighborhood, and the main problem. As soon as you know those, call record_shop.',
+  s0: 'Find out what kind of shop they run and where. As soon as the owner has said both, call record_shop with their own words. Do not ask for anything else first.',
   s1: [
     'Ask for the monthly marketing budget in won. Whenever the owner says any amount, even a range, call record_budget with the owner\'s words. The tool decides whether the amount is usable.',
     'Owner: "Maybe four or five hundred thousand."',
@@ -54,19 +55,27 @@ const STAGE_PROMPT = {
   s4: 'You read the plan. If the owner wants to go ahead, call create_checkout_link and say the link is on their screen. If they change the budget, call record_budget with their words.',
 };
 
+// Tool shapes (9/28 probes): the platform silently drops a call whose argument is not grounded in what the
+// caller said: a won amount as a number (23_va_toolcall_finding.md), and, in run 2 plus a 30 s probe, a
+// neighborhood steered by examples ('Mangwon' for a heard 'Mengkuan'). So every argument is the owner's own words,
+// with no examples, and our server does the reading (shop type, yes/no, amount).
+const words = (description) => ({ type: 'string', description });
 const T = {
-  record_shop: { type: 'function', name: 'record_shop', description: 'Call this once the owner has said what kind of shop they run and where. Pick the closest business_type and main_problem.', parameters: { type: 'object', properties: { business_type: { type: 'string', enum: ['cafe', 'restaurant', 'salon', 'clinic', 'fitness', 'academy', 'retail', 'lodging'] }, neighborhood: { type: 'string', description: 'Seoul neighborhood, romanized.', examples: ['Mangwon', 'Seongsu', 'Yeonnam'] }, main_problem: { type: 'string', enum: ['new_open', 'low_traffic', 'reviews', 'map_visibility', 'social_growth', 'repeat', 'press'] } }, required: ['business_type', 'neighborhood', 'main_problem'] } },
-  record_budget: { type: 'function', name: 'record_budget', description: 'Call this right after the owner says any monthly marketing budget, including a corrected one or a range. Pass the owner\'s words. Do not call it for prices or totals.', parameters: { type: 'object', properties: { owner_words: { type: 'string', description: "The owner's words for the amount, as heard.", examples: ['four hundred eighty thousand won', 'fifty man won', 'make that three hundred eighty thousand'] }, period: { type: 'string', enum: ['monthly', 'one_time'] } }, required: ['owner_words'] } },
-  confirm_budget: { type: 'function', name: 'confirm_budget', description: 'Call this after you read the budget back and the owner answers yes or no.', parameters: { type: 'object', properties: { confirmed: { type: 'boolean' } }, required: ['confirmed'] } },
+  record_shop: { type: 'function', name: 'record_shop', description: 'Call this once the owner has said what kind of shop they run and where it is.', parameters: { type: 'object', properties: { shop_words: words("The owner's words for their shop, as heard."), neighborhood: words('The place the owner named, as heard.') }, required: ['shop_words', 'neighborhood'] } },
+  record_budget: { type: 'function', name: 'record_budget', description: 'Call this right after the owner says any monthly marketing budget, including a corrected one or a range. Pass the owner\'s words. Do not call it for prices or totals.', parameters: { type: 'object', properties: { owner_words: words("The owner's words for the amount, as heard.") }, required: ['owner_words'] } },
+  confirm_budget: { type: 'function', name: 'confirm_budget', description: 'Call this after you read the budget back and the owner answers.', parameters: { type: 'object', properties: { owner_answer: words("The owner's answer to your read-back, as heard.") }, required: ['owner_answer'] } },
   build_plan: { type: 'function', name: 'build_plan', description: 'Build the 30-day plan from the confirmed budget and the real catalog.', parameters: { type: 'object', properties: {} } },
   create_checkout_link: { type: 'function', name: 'create_checkout_link', description: 'Create the checkout link after the owner agrees to the plan.', parameters: { type: 'object', properties: {} } },
   end_call: { type: 'function', name: 'end_call', description: 'End the call after the owner says goodbye.', parameters: { type: 'object', properties: {} } },
 };
 const STAGE_TOOLS = { s0: ['record_shop', 'end_call'], s1: ['record_budget', 'record_shop', 'end_call'], s2: ['confirm_budget', 'record_budget', 'end_call'], s3: ['build_plan', 'record_budget', 'end_call'], s4: ['create_checkout_link', 'record_budget', 'build_plan', 'end_call'] };
+const SCENE = 'A phone call between a small restaurant owner in Seoul and a marketing consultant. The owner talks about the shop, the neighborhood, slow weekday lunches, and a monthly marketing budget in Korean won.';
 const LISTEN = {
-  intake: { keyterms: ['Mangwon', 'Mangwon Market', 'Seongsu', 'Yeonnam', 'Hapjeong', 'Hongdae', 'Euljiro', 'ramen', 'brunch'], transcription_mode: 'balanced' },
-  money: { keyterms: ['won', 'man won', 'thousand won', 'a month'], transcription_mode: 'max_accuracy' },
-  services: { keyterms: ['press release', 'flyer', 'blog post', 'listing audit', 'retouching'], transcription_mode: 'balanced' },
+  // run 1 (9/28): balanced + nine place names garbled the synthesized caller ('Thanks. Bye.' -> 'Seongsu.'), so the
+  // probe keeps max_accuracy and a scene-setting transcription_prompt in every stage
+  intake: { keyterms: ['Mangwon', 'Mangwon Market', 'ramen'], transcription_mode: 'max_accuracy', transcription_prompt: SCENE },
+  money: { keyterms: ['won', 'thousand won', 'a month'], transcription_mode: 'max_accuracy', transcription_prompt: SCENE },
+  services: { keyterms: ['press release', 'flyer', 'blog post'], transcription_mode: 'max_accuracy', transcription_prompt: SCENE },
 };
 const STAGE_LISTEN = { s0: 'intake', s1: 'money', s2: 'money', s3: 'services', s4: 'services' };
 
@@ -87,6 +96,14 @@ function plan(budget) {
   if (posts >= BLOG.min) lines.push({ name: BLOG.name, unit_krw: BLOG.unit_krw, qty: posts });
   const total = lines.reduce((a, l) => a + l.qty * l.unit_krw, 0);
   return { budget_krw: budget, total_krw: total, spoken_total: `${englishWords(total)} won`, lines };
+}
+
+function shopType(w) {
+  const t = w.toLowerCase();
+  if (/ramen|noodle|restaurant|kitchen|bbq|diner|food/.test(t)) return 'restaurant';
+  if (/cafe|coffee|bakery|dessert/.test(t)) return 'cafe';
+  if (/salon|hair|nail|beauty/.test(t)) return 'salon';
+  return t.split(' ').slice(-2).join(' ') || null;
 }
 
 const YES = /\b(yes|yeah|yep|correct|that'?s right|right|sure|okay|ok|go ahead)\b/i;
@@ -112,7 +129,8 @@ export function createStub({ live = false, apiKey = '', maxTokens = Number(proce
       return { result: JSON.stringify(result), is_error, state: stage, session_update: sessionFor(stage) };
     };
     if (name === 'record_shop') {
-      s.profile = { business_label: args.business_type, location: args.neighborhood, problems: args.main_problem ? [args.main_problem] : [] };
+      const all = `${args.shop_words || ''} ${s.grounding.heard.map((h) => h.text).join(' ')}`;
+      s.profile = { business_label: shopType(args.shop_words || ''), location: args.neighborhood, problems: /empty|slow|quiet|no customers/i.test(all) ? ['low_traffic'] : [] };
       return { ...out({ ok: true, next_step: 'Ask for the monthly marketing budget in won.' }, false, 's1'), profile: s.profile };
     }
     if (name === 'record_budget') {
@@ -130,9 +148,10 @@ export function createStub({ live = false, apiKey = '', maxTokens = Number(proce
       const pending = s.ledger.pending();
       if (!pending) return out({ error: 'nothing_to_confirm', ask: 'Ask for the monthly budget.' }, true, 's1');
       const last = s.grounding.heard[s.grounding.heard.length - 1]?.text || '';
-      const yes = YES.test(last) && !NO.test(last);
-      if (args.confirmed && yes) { s.ledger.confirm(pending.id); return out({ ok: true, status: 'confirmed', next_step: 'Call build_plan now.' }, false, 's3'); }
-      if (!args.confirmed || NO.test(last)) { s.ledger.deny(pending.id); return out({ ok: true, status: 'rejected', next_step: 'Ask for the monthly budget again.' }, false, 's1'); }
+      const said = `${args.owner_answer || ''} ${last}`;
+      const yes = YES.test(said) && !NO.test(said);
+      if (yes) { s.ledger.confirm(pending.id); return out({ ok: true, status: 'confirmed', next_step: 'Call build_plan now.' }, false, 's3'); }
+      if (NO.test(said)) { s.ledger.deny(pending.id); return out({ ok: true, status: 'rejected', next_step: 'Ask for the monthly budget again.' }, false, 's1'); }
       return out({ error: 'no_clear_answer', ask: 'Ask the owner to say yes or no.' }, true, 's2');
     }
     if (name === 'build_plan') {
