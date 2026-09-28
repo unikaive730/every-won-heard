@@ -13,10 +13,10 @@ import { createGrounding } from './grounding.js';
 import { pickAmount, koreanShort, englishWords } from './amounts.js';
 import { listenFor } from './listen.js';
 
-const CONFIRM = [/^(네|예|좋아요|좋습니다|진행|진행해|진행할게요|그렇게 해|해 ?주세요|오케이|콜|괜찮아요|괜찮네요|할게요|하겠습니다)/, /^(yes|yeah|yep|sure|ok|okay|go ahead|let'?s do it|sounds good|looks good|do it|proceed|great)\b/i];
+export const CONFIRM = [/^(네|예|좋아요|좋습니다|진행|진행해|진행할게요|그렇게 해|해 ?주세요|오케이|콜|괜찮아요|괜찮네요|할게요|하겠습니다)/, /^(yes|yeah|yep|sure|ok|okay|go ahead|let'?s do it|sounds good|looks good|do it|proceed|great)\b/i];
 // read-back answers on the grounded path ("맞아요", "that's right" as well as the plan confirmations above)
-const YES = [...CONFIRM, /^(맞아요|맞습니다|맞아|맞네요|그래요|그렇습니다|네네)/, /^(that'?s right|correct|right|exactly|that'?s it)\b/i];
-const NO = [/^(아니|아뇨|아니요|아니에요|틀려|틀렸|그게 아니)/, /^(no|nope|not quite|that'?s wrong|wrong)\b/i];
+export const YES = [...CONFIRM, /^(맞아요|맞습니다|맞아|맞네요|그래요|그렇습니다|네네)/, /^(that'?s right|correct|right|exactly|that'?s it)\b/i];
+export const NO = [/^(아니|아뇨|아니요|아니에요|틀려|틀렸|그게 아니)/, /^(no|nope|not quite|that'?s wrong|wrong)\b/i];
 // words that make an amount in the intake step a budget (a menu price is not)
 const BUDGET_CUE = /예산|마케팅|광고|한 ?달|월\s?\d|월\s?[일이삼사오육칠팔구십백]|매달|budget|marketing|spend|a month|per month|monthly/i;
 const ASK_PLAN = [/추천|제안|계획|플랜|뭐부터|어떻게 해야|알려 ?줘|알려 ?주세요|해야 ?할까/, /recommend|suggest|plan|what should|where (do|should) i start|how do i|tell me/i];

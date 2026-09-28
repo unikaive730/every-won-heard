@@ -2,6 +2,7 @@
  * AssemblyAI server-side helpers. The API key never leaves this process.
  *
  * 1. streamingToken()  GET https://streaming.assemblyai.com/v3/token  -> short-lived token for the browser WebSocket
+ *    agentToken()      GET https://agents.assemblyai.com/v1/token     -> the same for the Voice Agent API (Bearer)
  * 2. transcribe()      POST /v2/upload + POST /v2/transcript + poll     -> used for Korean "turn" mode and for the
  *                       end-of-call analysis (speaker_labels, sentiment_analysis, auto_highlights, entity_detection)
  *
@@ -115,6 +116,47 @@ export function createAssemblyAI({ apiKey = process.env.ASSEMBLYAI_API_KEY || ''
   }
 
   /**
+   * Voice Agent API temporary token for the browser WebSocket (wss://agents.assemblyai.com/v1/ws?token=...).
+   * One token opens one session; max_session_duration_seconds caps what a page can spend. Auth here is Bearer.
+   */
+  async function agentToken({ expiresInSeconds = 60, maxSessionDurationSeconds = 240 } = {}) {
+    requireKey();
+    const u = new URL(`${AGENTS_BASE}/token`);
+    u.searchParams.set('expires_in_seconds', String(expiresInSeconds));
+    u.searchParams.set('max_session_duration_seconds', String(maxSessionDurationSeconds));
+    const res = await fetchImpl(u, { headers: { Authorization: `Bearer ${apiKey}` } });
+    if (!res.ok) {
+      const err = new Error(`AssemblyAI voice agent token request failed (${res.status})`);
+      err.code = res.status === 401 ? 'bad_key' : res.status === 429 ? 'rate_limited' : 'token_failed';
+      err.status = res.status;
+      throw err;
+    }
+    const json = await res.json();
+    return { token: json.token, expires_in_seconds: json.expires_in_seconds ?? expiresInSeconds, max_session_duration_seconds: maxSessionDurationSeconds };
+  }
+
+  /** Stored agents (scripts/compile-agent.mjs): POST /v1/agents, PUT /v1/agents/{id}, GET /v1/agents. */
+  async function agentsRequest(method, pathPart, body) {
+    requireKey();
+    const res = await fetchImpl(`${AGENTS_BASE}/agents${pathPart}`, {
+      method,
+      headers: { Authorization: apiKey, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = new Error(`AssemblyAI agents ${method} ${pathPart || '/'} failed (${res.status}): ${JSON.stringify(json).slice(0, 400)}`);
+      err.status = res.status;
+      throw err;
+    }
+    return json;
+  }
+  const createAgent = (body) => agentsRequest('POST', '', body);
+  const updateAgent = (id, body) => agentsRequest('PUT', `/${encodeURIComponent(id)}`, body);
+  const getAgent = (id) => agentsRequest('GET', `/${encodeURIComponent(id)}`);
+  const listAgents = () => agentsRequest('GET', '');
+
+  /**
    * GET /v1/sessions/{id}: status, config and artifacts (pre-signed audio / timeline / metadata URLs).
    * Artifacts are empty until the session completes.
    */
@@ -150,5 +192,5 @@ export function createAssemblyAI({ apiKey = process.env.ASSEMBLYAI_API_KEY || ''
     return { session, timeline: null, polls: tries };
   }
 
-  return { enabled, streamingToken, upload, transcribe, getTranscript, getAgentSession, waitForTimeline };
+  return { enabled, streamingToken, agentToken, createAgent, updateAgent, getAgent, listAgents, upload, transcribe, getTranscript, getAgentSession, waitForTimeline };
 }

@@ -16,6 +16,21 @@ function median(nums) {
   return a.length % 2 ? a[m] : Math.round((a[m - 1] + a[m]) / 2);
 }
 
+/**
+ * Amounts a record_budget call stands for: the model passes the owner's words (no number argument, see states.js),
+ * our result carries the amount the server heard. Older calls passed amount_krw.
+ */
+function callAmounts(c) {
+  const out = [];
+  if (c.arguments?.amount_krw != null) out.push(Number(c.arguments.amount_krw));
+  if (c.arguments?.owner_words) out.push(...moneyValues(String(c.arguments.owner_words)));
+  try {
+    const r = typeof c.result === 'string' ? JSON.parse(c.result) : c.result;
+    if (r?.heard_krw != null) out.push(Number(r.heard_krw));
+  } catch { /* result is not JSON */ }
+  return out;
+}
+
 function ownerRows(rows) {
   return (rows || []).filter((r) => r.source === 'owner' && r.value_krw != null && r.status !== 'rejected');
 }
@@ -38,7 +53,7 @@ export function reconcile(rows, timeline) {
   for (const r of ownerRows(rows)) {
     const byItem = r.item_id ? userTurns.find((t) => t.item_id === r.item_id && moneyValues(t.user_transcript).includes(r.value_krw)) : null;
     const turn = byItem || userTurns.find((t) => moneyValues(t.user_transcript).includes(r.value_krw));
-    const call = calls.find((c) => c.name === 'record_budget' && !c.is_error && Number(c.arguments?.amount_krw) === r.value_krw);
+    const call = calls.find((c) => c.name === 'record_budget' && !c.is_error && callAmounts(c).includes(r.value_krw));
     const base = { row_id: r.id, value_krw: r.value_krw, status: r.status, label: r.label || null };
     if (turn) matched.push({ ...base, turn_id: turn.turn_id, user_transcript: turn.user_transcript, user_confidence: turn.user_confidence ?? null, tool_call_id: call?.call_id || null, matched_by: byItem ? 'item_id' : 'amount' });
     else unmatched.push({ ...base, reason: call ? 'tool_call_only' : 'not_in_timeline', tool_call_id: call?.call_id || null });

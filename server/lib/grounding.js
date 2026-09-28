@@ -3,7 +3,7 @@
  *
  * 1. Candidates: the owner's final turns since the previous budget decision, at most the last 2, within 20 s.
  * 2. parseAmounts() over those turns (joined, so a number split by a pause still reads as one).
- * 3. No amount            -> { error: 'no_amount_heard' }
+ * 3. No amount            -> { error: 'no_amount_heard' } (the turns are not consumed)
  * 4. Correction marker    -> only the last amount counts. Two amounts or a range without one -> 'ambiguous_amount'.
  * 5. The model passed a different amount than the server heard -> 'amount_mismatch' with heard_krw.
  * 6. Pass                 -> the caller writes a ledger row 'heard' with phrase, item_id, time, via, paraphrased.
@@ -47,6 +47,7 @@ export function createGrounding({ now = () => Date.now(), windowMs = 20_000, max
    */
   function judge({ amount_krw = null, owner_words = '', lang = 'en', at = now() } = {}) {
     const turns = candidates(at);
+    const idxBefore = state.lastDecisionIdx;
     state.lastDecisionIdx = heard.length;
     state.decisions += 1;
     // join the turns and remember where each one starts, to find the phrase's turn afterwards
@@ -60,7 +61,12 @@ export function createGrounding({ now = () => Date.now(), windowMs = 20_000, max
     const pick = pickAmount(joined);
     const base = { turns: turns.map((t) => ({ item_id: t.item_id, text: t.text })) };
 
-    if (pick.status === 'none') return { ok: false, error: 'no_amount_heard', ask: ASK.no_amount_heard, ...base };
+    if (pick.status === 'none') {
+      // nothing money-like was decided, so these turns stay candidates: "Four hundred..." heard before the
+      // model's early call still joins "eighty thousand" on the next one
+      state.lastDecisionIdx = idxBefore;
+      return { ok: false, error: 'no_amount_heard', ask: ASK.no_amount_heard, ...base };
+    }
     if (pick.status === 'ambiguous') {
       const span = pick.item ? spans.find((s) => pick.item.index >= s.start && pick.item.index < s.end) : spans[spans.length - 1];
       return { ok: false, error: 'ambiguous_amount', options: pick.options, ask: ASK.ambiguous_amount, phrase: pick.item?.text || null, item_id: span?.turn.item_id || null, heard_at: span?.turn.at || null, ...base };
@@ -82,5 +88,10 @@ export function createGrounding({ now = () => Date.now(), windowMs = 20_000, max
     return { ok: true, amount_krw: value, read_back: readBack(value, lang), paraphrased, forced, ...found, ...base };
   }
 
-  return { heard, state, addHeard, candidates, judge };
+  /** A turn by item_id (Voice Agent item ids are unique per utterance). */
+  function find(itemId) {
+    return itemId ? heard.find((h) => h.item_id === itemId) || null : null;
+  }
+
+  return { heard, state, addHeard, candidates, judge, find };
 }
