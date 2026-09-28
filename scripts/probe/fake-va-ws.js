@@ -3,6 +3,8 @@
 // glue (ordering, tool relay, barge-in, session.end) can be checked before a paid call.
 // Energy-based turn detection on the input.audio it receives; each caller turn gets the transcript the real
 // API gave for that line (numbers as digits, measured 9/28), then a scripted agent move.
+// Tool arguments carry both shapes: the product server's (server/lib/states.js: enums, owner_words + period,
+// answer yes|no) and the older contract stub's (shop_words, owner_answer); each side ignores the other's.
 (() => {
   const USER = [
     'Hi. I run a small ramen place near Mangwon Market. We opened in the spring. Weekends are fine, but weekday lunch is empty.',
@@ -12,7 +14,7 @@
     'Wait. Cut it to 380,000. And can you take 20% off?',
     'Yes.',
     'Okay. Go ahead.',
-    'Thanks. Bye.',
+    'Thanks, bye.',
   ];
   const b64 = (i16) => { const u = new Uint8Array(i16.buffer); let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
   const tone = (ms, f = 196) => { const n = Math.round(24 * ms); const a = new Int16Array(n); for (let i = 0; i < n; i++) a[i] = Math.round(Math.sin((2 * Math.PI * f * i) / 24000) * 2400); return a; };
@@ -128,14 +130,14 @@
 
     async agentMove(k) {
       const words = USER[k];
-      if (k === 0) { await this.call('record_shop', { shop_words: 'a small ramen place', neighborhood: 'Mangwon Market' }); return this.say('Got it. What monthly marketing budget should I plan for, in won?', 2000); }
+      if (k === 0) { await this.call('record_shop', { business_type: 'restaurant', neighborhood: 'Mangwon Market', main_problem: 'low_traffic', shop_words: 'a small ramen place' }); return this.say('Got it. What monthly marketing budget should I plan for, in won?', 2000); }
       if (k === 1 || k === 2 || k === 4) {
-        const r = await this.call('record_budget', { owner_words: words.replace(/^(Maybe|Wait\.)\s*/i, '') });
+        const r = await this.call('record_budget', { owner_words: words.replace(/^(Maybe|Wait\.)\s*/i, ''), period: 'monthly' });
         if (r.is_error) return this.say(r.parsed.options ? `Which one should I plan for, ${r.parsed.options.join(' or ')}?` : 'Sorry, what monthly budget should I plan for?', 2400);
         return this.say(`${k === 4 ? "I can only use catalog prices, but I can fit the plan to a smaller budget. " : ''}${r.parsed.read_back}, is that right?`, k === 4 ? 4200 : 2400);
       }
       if (k === 3 || k === 5) {
-        await this.call('confirm_budget', { owner_answer: USER[k] });
+        await this.call('confirm_budget', { answer: 'yes', owner_answer: USER[k] });
         const p = await this.call('build_plan', {});
         const lines = (p.parsed.lines || []).map((l) => `${l.qty} ${l.name}`).join(', ');
         return this.say(`Here is the plan: ${lines}. The total is ${p.parsed.spoken_total}. Want the checkout link?`, k === 3 ? 8000 : 4000);

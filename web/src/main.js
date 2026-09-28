@@ -557,6 +557,7 @@ async function loadReceipt() {
     if (r.pending) { els.receipt.textContent = r.message; return; }
     renderReceipt(els.receipt, r, app.lang);
   } catch (err) {
+    note('receipt-failed', { status: err.status || null, message: err.message });
     els.receipt.textContent = 'receipt: ' + err.message;
   }
 }
