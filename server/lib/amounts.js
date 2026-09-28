@@ -196,6 +196,7 @@ function numericItems(tokens) {
       if (run.length && x.gap === false && x.type === 'ko' && prev?.type === 'num') { run.push(x); j++; continue; } // 48만
       if (x.type === 'num' || x.type === 'ko') {
         if (run.length && x.type === 'num' && prev?.type === 'num') break; // "40 50" are two numbers
+        if (run.length && x.type === 'num' && run.some((r) => r.type === 'word')) break; // "Four hundred... 80,000": words then digits are two numbers
         run.push(x); j++; continue;
       }
       if (x.type === 'word') {

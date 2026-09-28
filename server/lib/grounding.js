@@ -20,6 +20,22 @@ const ASK = {
   amount_mismatch: 'Read back heard_krw and ask the owner to confirm.',
 };
 
+/**
+ * A number cut in two by a pause and transcribed in digits: "400... 80,000 won", often as two turns ("400." then
+ * "80,000 won."). The words form ("Four hundred... eighty thousand") already parses as one number; the digit form
+ * reads as 80,000. When a bare hundreds number (100..900) sits right before a thousands amount under 100,000 with
+ * only pause punctuation between them, the owner may have meant either, so the caller asks: [80,000, 480,000].
+ */
+function splitByPause(joined, pick) {
+  const { item, value, items } = pick;
+  if (value >= 100_000 || value % 1000 !== 0) return null;
+  const k = items.indexOf(item);
+  const prev = k > 0 ? items[k - 1] : null;
+  if (!prev || prev.money || prev.value == null || prev.value % 100 !== 0 || prev.value < 100 || prev.value > 900) return null;
+  if (!/^[\s.,…]*$/.test(joined.slice(prev.end, item.index))) return null;
+  return prev.value * 1000 + value;
+}
+
 function norm(s) {
   return String(s || '').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -75,6 +91,8 @@ export function createGrounding({ now = () => Date.now(), windowMs = 20_000, max
     const value = pick.value;
     const span = spans.find((s) => pick.item.index >= s.start && pick.item.index < s.end) || spans[spans.length - 1];
     const found = { phrase: pick.item.text, item_id: span.turn.item_id, heard_at: span.turn.at, via: span.turn.via };
+    const split = splitByPause(joined, pick);
+    if (split) return { ok: false, error: 'ambiguous_amount', options: [value, split], ask: ASK.ambiguous_amount, ...found, ...base };
     let forced = false;
     if (amount_krw != null && Number(amount_krw) !== value) {
       const key = `mismatch:${value}`;

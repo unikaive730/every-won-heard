@@ -105,3 +105,21 @@ test('ledger: a range row, a denied read-back, and a newer confirmed budget', ()
   assert.equal(l.budget().value_krw, 380_000, 'computed rows never count as the budget');
   assert.equal(l.rows.filter((r) => r.status === 'confirmed' && r.source === 'owner').length, 2);
 });
+
+test('grounding: a number cut by a pause and transcribed in digits asks which one was meant', () => {
+  const c = clock();
+  const g = createGrounding({ now: c.now });
+  g.addHeard({ item_id: 'p1', text: '400.', at: c.tick(10) });
+  g.addHeard({ item_id: 'p2', text: '80,000 won.', at: c.tick(1300) });
+  const r = g.judge({ owner_words: '80,000 won' });
+  assert.equal(r.ok, false);
+  assert.equal(r.error, 'ambiguous_amount');
+  assert.deepEqual(r.options, [80_000, 480_000]);
+  assert.equal(r.item_id, 'p2');
+  g.addHeard({ item_id: 'p3', text: 'Four hundred... 80,000 won.', at: c.tick(3000) });
+  assert.deepEqual(g.judge({}).options, [80_000, 480_000], 'the same inside one turn');
+  g.addHeard({ item_id: 'p4', text: 'Four hundred and eighty thousand won.', at: c.tick(3000) });
+  assert.equal(g.judge({}).amount_krw, 480_000);
+  g.addHeard({ item_id: 'p5', text: 'We sell 300 bowls a day. 80,000 won a month for marketing.', at: c.tick(3000) });
+  assert.equal(g.judge({}).amount_krw, 80_000, 'a count with words in between is not a split number');
+});
