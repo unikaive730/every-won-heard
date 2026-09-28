@@ -4,15 +4,20 @@
  *
  * Falls back to server/data/products.mock.json when the endpoint is unreachable and
  * reports `source: 'mock'` so the UI and README can say so honestly.
+ *
+ * status() is cached for 60 s (concurrent callers share one request), so the public /api/health
+ * does not call the production MCP server on every page load.
  */
 import { readFile } from 'node:fs/promises';
 
 export const DEFAULT_MCP_URL = 'https://api.marketpilot.it/mcp';
 const MOCK_PATH = new URL('../data/products.mock.json', import.meta.url);
 
-export function createMcpClient({ url = process.env.MARKETPILOT_MCP_URL || DEFAULT_MCP_URL, fetchImpl = globalThis.fetch, timeoutMs = 8000, mock = null, cacheMs = 10 * 60 * 1000, now = () => Date.now(), logger = console } = {}) {
+export function createMcpClient({ url = process.env.MARKETPILOT_MCP_URL || DEFAULT_MCP_URL, fetchImpl = globalThis.fetch, timeoutMs = 8000, mock = null, cacheMs = 10 * 60 * 1000, statusCacheMs = 60 * 1000, now = () => Date.now(), logger = console } = {}) {
   let nextId = 1;
   let productCache = null; // {at, value}
+  let statusCache = null; // {at, value}
+  let statusInflight = null;
   let lastError = null;
 
   async function rpc(method, params = {}) {
@@ -107,13 +112,29 @@ export function createMcpClient({ url = process.env.MARKETPILOT_MCP_URL || DEFAU
     return callTool('submit_inquiry', { ...input, agentName: 'MarketPilot Voice Agent' });
   }
 
-  async function status() {
+  async function checkStatus() {
     try {
       const r = await rpc('initialize', { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'marketpilot-voice-agent', version: '0.1.0' } });
       return { ok: true, url, serverInfo: r?.serverInfo || null };
     } catch (err) {
       return { ok: false, url, error: String(err?.message || err) };
     }
+  }
+
+  /** Reachability of the MCP server, checked at most once per statusCacheMs. */
+  async function status({ force = false } = {}) {
+    if (!force && statusCache && now() - statusCache.at < statusCacheMs) return statusCache.value;
+    if (!statusInflight) {
+      statusInflight = checkStatus()
+        .then((value) => {
+          const at = now();
+          const out = { ...value, checkedAt: new Date(at).toISOString() };
+          statusCache = { at, value: out };
+          return out;
+        })
+        .finally(() => { statusInflight = null; });
+    }
+    return statusInflight;
   }
 
   return { url, rpc, callTool, listProducts, getProduct, searchPlaces, createCheckout, getCheckoutStatus, submitInquiry, status, get lastError() { return lastError; } };

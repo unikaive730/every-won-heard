@@ -70,3 +70,29 @@ test('status reports ok:false with the error when unreachable', async () => {
   assert.equal(s.ok, false);
   assert.match(s.error, /502/);
 });
+
+test('status is cached for 60 s and concurrent callers share one request', async () => {
+  let calls = 0;
+  let t = 1_000_000;
+  const fetchImpl = async (url, init) => {
+    calls += 1;
+    const body = JSON.parse(init.body);
+    assert.equal(body.method, 'initialize');
+    return jsonResponse({ jsonrpc: '2.0', id: body.id, result: { serverInfo: { name: 'marketpilot', version: '1' } } });
+  };
+  const mcp = createMcpClient({ fetchImpl, mock, now: () => t });
+  const [a, b, c] = await Promise.all([mcp.status(), mcp.status(), mcp.status()]);
+  assert.equal(calls, 1, 'one request for three concurrent health checks');
+  assert.equal(a.ok, true);
+  assert.equal(a, b);
+  assert.equal(b, c);
+  assert.ok(a.checkedAt);
+  t += 59_000;
+  await mcp.status();
+  assert.equal(calls, 1, 'still cached at 59 s');
+  t += 2_000;
+  await mcp.status();
+  assert.equal(calls, 2, 'checked again after 60 s');
+  await mcp.status({ force: true });
+  assert.equal(calls, 3);
+});
