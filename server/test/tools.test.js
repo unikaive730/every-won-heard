@@ -5,6 +5,7 @@ import { createAgent } from '../lib/agent.js';
 import { createToolRunner, initVoiceAgent, recordHeard } from '../lib/tools.js';
 import { planForBudget, asPlannerPlan } from '../lib/voice-plan.js';
 import { checkoutItems } from '../lib/planner.js';
+import { BRANDS } from '../lib/gateway.js';
 
 const mock = JSON.parse(await readFile(new URL('../data/products.mock.json', import.meta.url), 'utf8'));
 const getCatalog = async () => ({ source: 'mock', products: mock.products });
@@ -36,7 +37,7 @@ test('voice plan: design 6-9 examples from catalog prices, generic names, total 
   for (const b of [50_000, 99_000, 150_000, 250_000, 480_000, 1_000_000, 3_000_000]) {
     const p = planForBudget(b, mock.products);
     assert.ok(p.total_krw <= b, `total within ${b}`);
-    assert.ok(p.lines.every((l) => !/naver|instagram|kakao|google|플레이스/i.test(l.name)));
+    assert.ok(p.lines.every((l) => !BRANDS.test(l.name) && !BRANDS.test(l.spoken)));
   }
   const noBlog = planForBudget(480_000, mock.products.filter((x) => x.productId !== 106));
   assert.ok(!noBlog.lines.some((l) => l.product_id === 106), 'a product missing from the catalog is skipped');

@@ -1,8 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { STATE_IDS, TOOLS, toolNamesFor, sessionUpdateFor, inputFor, systemPromptFor, storedAgentBody, firstSessionUpdate, inlineSessionFor } from '../lib/states.js';
-
-const BRANDS = /naver|instagram|kakao|google|coupang|baemin|youtube|tiktok|네이버|인스타|카카오|쿠팡|배민/i;
+import { BRANDS } from '../lib/gateway.js';
 
 test('states: each stage reveals only its tools (design 6-3)', () => {
   assert.deepEqual(toolNamesFor('s0'), ['record_shop', 'end_call']);

@@ -30,7 +30,7 @@ import { planForBudget, asPlannerPlan } from './voice-plan.js';
 import { checkoutItems } from './planner.js';
 import { listenFor } from './listen.js';
 
-const PROBLEM_KEY = { map_visibility: 'place_rank', social_growth: 'instagram' }; // enum -> extract.js key
+const PROBLEM_KEY = { map_visibility: 'place_rank' }; // enum -> extract.js key where the names differ
 const DISCOUNT = /discount|\d+\s?%\s?off|percent off|cheaper|price cut|lower (the )?price|\bdeal\b/i;
 const FILLER = /^(uh+|um+|er+|oh|well|so|hmm+)[\s,.!]+/i;
 const norm = (s) => String(s || '').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
