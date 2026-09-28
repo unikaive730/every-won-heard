@@ -13,7 +13,9 @@
     "dev:web": "vite --config web/vite.config.js",
     "build": "vite build --config web/vite.config.js",
     "start": "NODE_ENV=production node --env-file-if-exists=.env server/index.js",
-    "test": "node --test \"server/test/**/*.test.js\""
+    "test": "node --test \"server/test/**/*.test.js\"",
+    "agent:compile": "node scripts/compile-agent.mjs",
+    "va:harness": "node scripts/va-harness.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0"
