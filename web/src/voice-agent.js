@@ -18,7 +18,7 @@
  *     -> session.end                       billing stops now (a bare close bills a 30 s resume window)
  *
  * The model never passes a number: tools take the owner's words, and our server reads the amount from the
- * words and from the transcripts it received (docs/hackathon/23_va_toolcall_finding.md).
+ * words and from the transcripts it received (README.md, "The model never passes a number").
  */
 import { agentWsUrl, firstUpdate, laterUpdate, int16ToBase64, base64ToInt16, createToolGate, createLatencyMeter, listeningFrom, pauseReason } from './lib/va.js';
 

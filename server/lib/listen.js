@@ -6,7 +6,7 @@
  *   keyterms_prompt  vocabulary for this step (max 100 terms, 50 chars each). No brand names.
  *   mode             max_accuracy while money is being said, balanced otherwise
  *
- * Measured 2026-09-28 (docs/hackathon/22_korean.md): 3.6 Pro accepts all three mid-session without an
+ * Measured 2026-09-28 (README.md, "Where AssemblyAI is used"): 3.6 Pro accepts all three mid-session without an
  * acknowledgement message, and closes the session (error 3006) on an invalid value. So the limits are
  * enforced here and again in the browser before sending.
  */

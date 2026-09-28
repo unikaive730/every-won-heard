@@ -13,7 +13,7 @@
  * Off by default (CALL_SUMMARY=1 turns it on). Measured 2026-09-28 on two live Korean calls: neither reply was
  * JSON, one invented a placeholder ({owner}), one wrote "{budget} 원" (double unit) and added a claim the owner
  * never made. The guard rejected both and the template was used, so the template is the default and the model
- * stays opt-in until a better Gateway model is available on this account. Notes: docs/hackathon/22_korean.md.
+ * stays opt-in until a better Gateway model is available on this account. See README.md, "Where AssemblyAI is used".
  */
 import { parseAmounts, koreanShort } from './amounts.js';
 

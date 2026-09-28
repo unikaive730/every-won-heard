@@ -10,7 +10,7 @@
  * - createLatencyMeter()          input.speech.stopped -> first reply.audio, in ms
  * - listeningFrom(config, state)  "money · max accuracy · 4 key terms" from session.ready / session.updated
  *
- * Protocol facts used here (docs/hackathon/va_events.md, va_client_tools.md):
+ * Protocol facts used here (AssemblyAI Voice Agent API docs, "Events reference" and "Client-side tools"):
  * - send tool.result only when reply.done is the latest event received; a reply.done with status
  *   "interrupted" drops every result collected for that reply
  * - agent_id goes alone in the first session.update (agent_id_not_first otherwise)

@@ -139,7 +139,7 @@ export function createApp({ assemblyai, mcp, llm, agent, gateway, tools, guard, 
       return json(res, 200, {
         ok: true,
         assemblyai: { configured: aai.enabled, streaming: { en: 'stream', ko: 'stream' }, models: { en: 'universal-3-5-pro', ko: 'universal-3-6-pro' }, note: aai.enabled ? null : 'ASSEMBLYAI_API_KEY missing: voice is disabled, type-to-chat still works' },
-        llm: llmClient ? { configured: true, model: llmClient.model, state: llmClient.state } : { configured: false, mode: 'rules', note: 'LLM_API_KEY missing: rule-based consultant' },
+        llm: llmClient ? { configured: true, model: llmClient.model, state: llmClient.state } : { configured: false, mode: 'rules', note: 'rule-based consultant by design' },
         summary: gw ? { via: 'llm-gateway', model: gw.model, enabled: !gw.state.disabled } : { via: 'template', enabled: false },
         mcp: { url: mcpClient.url, reachable: mcpStatus.ok, serverInfo: mcpStatus.serverInfo || null, checkedAt: mcpStatus.checkedAt || null, catalogSource: cat.source, products: cat.products.length, capturedAt: cat.capturedAt || null, error: mcpStatus.ok ? null : mcpStatus.error },
         voice_demo: guardClient.status(), // the web app reads enabled / message to show the paused note
