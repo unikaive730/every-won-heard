@@ -133,3 +133,27 @@ test('GET receipt: unknown AssemblyAI session is a 404; a Korean call uses its o
   assert.equal(r.matched.length, 1);
   assert.match(r.summary.text, /월 48만 원/);
 });
+
+test('reconcile on the real timeline shape (live Voice Agent session, 2026-09-28)', () => {
+  // trimmed from a real Sessions API timeline: user turns carry the transcript with agent_text null, their item_id is
+  // not the transcript.user item_id, numbers arrive as digits, and there is a config_changes array
+  const real = {
+    session_id: 'sess_2e36f35860704ecfbadd6daa5fce6432',
+    turns: [
+      { turn_id: 'resp_3fd7', item_id: 'msg_f392', status: 'completed', trigger: 'greeting', user_transcript: null, user_confidence: null, agent_text: 'Hi, this is MarketPilot. What monthly marketing budget should I plan for, in won?', time_to_first_audio_ms: 169 },
+      { turn_id: 'resp_813b', item_id: 'msg_3aca', status: 'completed', trigger: 'user_speech', user_transcript: 'Maybe 4 or 500,000 won a month.', user_confidence: 1, agent_text: null, time_to_first_audio_ms: null },
+      { turn_id: 'resp_5e32', item_id: 'msg_b016', status: 'completed', trigger: 'user_speech', user_transcript: '480,000 won a month.', user_confidence: 1, agent_text: null, time_to_first_audio_ms: null },
+      { turn_id: 'resp_081b', item_id: 'msg_fd4c', status: 'completed', trigger: 'user_speech', user_transcript: "Yes, that's right.", user_confidence: 1, agent_text: null, time_to_first_audio_ms: null },
+    ],
+    config_changes: [{ received_at_ms: 1, during_turn_id: null, update: {} }],
+  };
+  const l = createLedger({ lang: 'en' });
+  l.addRejected({ reason: 'range', options: [400000, 500000], item_id: 'msg_65d1' });
+  const row = l.addHeard({ value_krw: 480000, item_id: 'msg_5ff6' }); // transcript.user item_id
+  l.confirm(row.id);
+  const r = reconcile(l.snapshot(), real);
+  assert.equal(r.matched.length, 1);
+  assert.equal(r.matched[0].matched_by, 'amount', 'item ids differ between transcript.user and the timeline');
+  assert.equal(r.matched[0].turn_id, 'resp_5e32');
+  assert.equal(r.median_time_to_first_audio_ms, 169);
+});

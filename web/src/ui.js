@@ -16,7 +16,12 @@ export const I18N = {
     speakers: '화자', ownerTag: '사장님', concerns: '사장님이 실제로 말한 고민', phrases: '키워드', entities: '언급한 사실', mood: '감정 분포', none: '없음',
     agent: '상담사', owner: '사장님', copy: '요약 복사', copied: '복사됨', sourceLive: '실시간 카탈로그 (MCP)', sourceMock: '목업 카탈로그 (MCP 연결 안 됨)',
     micDenied: '마이크 권한이 없어요. 아래 입력창으로 계속할 수 있습니다.', noKey: 'AssemblyAI 키가 없어 음성은 꺼져 있어요. 입력창으로 상담을 이어갈 수 있습니다.',
-    modeStream: 'AssemblyAI Universal-Streaming', modeTurn: 'AssemblyAI pre-recorded (턴 단위, 한국어)', ended: '상담이 끝났습니다. 오른쪽 계획과 체크리스트를 확인하세요.',
+    modeStream: 'AssemblyAI Universal-3.6 Pro 스트리밍', modeTurn: 'AssemblyAI pre-recorded (턴 단위, 한국어)', ended: '상담이 끝났습니다. 오른쪽 계획과 체크리스트를 확인하세요.',
+    ledger: '금액 원장', receipt: '통화 영수증', listeningFor: '듣는 중', maxAccuracy: '최고 정확도', balanced: '기본 정확도', keyterms: '핵심어',
+    steps: { intake: '가게·동네', budget: '금액', confirm: '금액 확인', plan: '서비스', commit: '서비스' },
+    heardAt: '들음', readBackAt: '되읽음', confirmedAt: '확인', rejectedAt: '거절', ledgerEmpty: '사장님이 금액을 말하면 여기에 근거와 함께 남습니다.',
+    checking: '통화 기록과 대조하는 중…', rConfirmed: (n) => `확정 금액 ${n}건`, rMatchedVa: (n) => `${n}건이 AssemblyAI 세션 기록과 일치`, rMatchedKo: (n) => `${n}건이 Universal-3.6 Pro 전사와 일치`,
+    rRejectedVa: (n) => `툴 호출 거절 ${n}건`, rRejectedKo: (n) => `받지 않은 범위 ${n}건`, rUnmatched: '기록에서 찾지 못한 금액', rTtfa: '첫 음성까지 중앙값', summary: '통화 요약', nextStep: '다음 할 일', summaryTemplate: '템플릿(숫자는 원장에서)',
   },
   en: {
     tagline: 'You talk. A 30-day marketing plan comes out.',
@@ -34,6 +39,11 @@ export const I18N = {
     agent: 'Consultant', owner: 'Owner', copy: 'Copy summary', copied: 'Copied', sourceLive: 'live catalog (MCP)', sourceMock: 'mock catalog (MCP unreachable)',
     micDenied: 'Microphone permission denied. You can continue by typing below.', noKey: 'No AssemblyAI key on the server, so voice is off. You can continue by typing.',
     modeStream: 'AssemblyAI Universal-Streaming', modeTurn: 'AssemblyAI pre-recorded (per turn, Korean)', ended: 'Call ended. Check the plan and checklist on the right.',
+    ledger: 'Money ledger', receipt: 'Call receipt', listeningFor: 'Listening for', maxAccuracy: 'max accuracy', balanced: 'balanced', keyterms: 'key terms',
+    steps: { intake: 'places', budget: 'money', confirm: 'money', plan: 'services', commit: 'services' },
+    heardAt: 'heard', readBackAt: 'read back', confirmedAt: 'confirmed', rejectedAt: 'rejected', ledgerEmpty: 'Every amount the owner says lands here with its evidence.',
+    checking: 'Checking against the call record…', rConfirmed: (n) => `${n} confirmed amount${n === 1 ? '' : 's'}`, rMatchedVa: (n) => `${n} matched to the AssemblyAI session record`, rMatchedKo: (n) => `${n} matched to the Universal-3.6 Pro transcript`,
+    rRejectedVa: (n) => `${n} tool call${n === 1 ? '' : 's'} rejected`, rRejectedKo: (n) => `${n} range${n === 1 ? '' : 's'} not accepted`, rUnmatched: 'Amounts not found in the record', rTtfa: 'median time to first audio', summary: 'Call summary', nextStep: 'Next step', summaryTemplate: 'template (numbers from the ledger)',
   },
 };
 
@@ -204,4 +214,52 @@ export function summaryText(session, lang) {
     for (const c of session.brief.concerns) lines.push(`- "${c.text}"`);
   }
   return lines.join('\n');
+}
+
+const mmss = (sec) => {
+  if (sec == null) return null;
+  const m = Math.floor(sec / 60);
+  return `${String(m).padStart(2, '0')}:${(sec - m * 60).toFixed(1).padStart(4, '0')}`;
+};
+
+/** Money ledger: each owner amount with its evidence (words heard, when heard, read back, confirmed). */
+export function renderLedger(el, rows, lang) {
+  const t = I18N[lang];
+  if (!rows?.length) { el.innerHTML = `<li class="lempty">${esc(t.ledgerEmpty)}</li>`; return; }
+  el.innerHTML = rows.map((r) => {
+    if (r.source !== 'owner') return `<li class="lrow is-computed"><div class="lmain">${esc(r.label)}</div></li>`;
+    const [words, num, status] = String(r.label).split(' · ');
+    const times = [[t.heardAt, r.t?.heard], [t.readBackAt, r.t?.read_back], [t.confirmedAt, r.t?.confirmed], [t.rejectedAt, r.t?.rejected]].filter(([, v]) => v != null).map(([k, v]) => `${esc(k)} ${mmss(v)}`);
+    const ev = [r.phrase ? `“${esc(r.phrase)}”` : '', ...times, esc(r.via || '')].filter(Boolean).join(' · ');
+    return `<li class="lrow is-${esc(r.status)}" title="${esc(r.label)}"><div class="lmain"><span class="lwords">${esc(words)}</span><span class="lnum">${esc(num || '')}</span><span class="lstat">${esc(status || r.status)}</span></div><div class="lev">${ev}</div></li>`;
+  }).join('');
+}
+
+/** "Listening for: money · max accuracy · 6 key terms" from what we last sent to Universal-3.6 Pro. */
+export function renderListening(el, config, lang) {
+  if (!config) { el.hidden = true; return; }
+  const t = I18N[lang];
+  el.hidden = false;
+  const what = t.steps[config.step] || config.step || '';
+  const mode = config.mode === 'max_accuracy' ? t.maxAccuracy : t.balanced;
+  const terms = config.keyterms ? (lang === 'ko' ? `${t.keyterms} ${config.keyterms}개` : `${config.keyterms} ${t.keyterms}`) : '';
+  el.textContent = `${t.listeningFor}: ${[what, mode, terms].filter(Boolean).join(' · ')}`;
+}
+
+/** Call receipt: ledger checked against AssemblyAI's record of the call, plus the summary. */
+export function renderReceipt(el, rc, lang) {
+  const t = I18N[lang];
+  if (!rc) { el.innerHTML = `<span class="busy">${esc(t.checking)}</span>`; return; }
+  const va = rc.record === 'assemblyai_session';
+  const line = [t.rConfirmed(rc.confirmed_amounts), (va ? t.rMatchedVa : t.rMatchedKo)(rc.matched.length), (va ? t.rRejectedVa : t.rRejectedKo)(rc.rejected_calls)].join(' · ');
+  const unmatched = rc.unmatched?.length ? `<div class="runm"><b>${esc(t.rUnmatched)}</b> ${rc.unmatched.map((u) => `₩${fmt(u.value_krw)}`).join(', ')}</div>` : '';
+  const ttfa = rc.median_time_to_first_audio_ms != null ? `<small>${esc(t.rTtfa)} ${fmt(rc.median_time_to_first_audio_ms)} ms${rc.session_id ? ` · ${esc(rc.session_id)}` : ''}</small>` : '';
+  const sm = rc.summary;
+  const src = sm ? (sm.source === 'llm-gateway' ? `LLM Gateway · ${esc(sm.model)}` : esc(t.summaryTemplate)) : '';
+  el.innerHTML = `
+    <div class="rline">${esc(line)}</div>
+    ${rc.matched.map((m) => `<div class="rmatch">₩${fmt(m.value_krw)} ← “${esc(m.user_transcript)}”${m.user_confidence != null ? ` <small>${Math.round(m.user_confidence * 100)}%</small>` : ''}</div>`).join('')}
+    ${unmatched}${ttfa}
+    ${sm ? `<div class="rsum"><h3>${esc(t.summary)} <small>${src}</small></h3><p>${esc(sm.text)}</p>${sm.next_step ? `<p><b>${esc(t.nextStep)}</b> ${esc(sm.next_step)}</p>` : ''}</div>` : ''}
+  `;
 }

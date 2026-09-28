@@ -3,8 +3,11 @@
  *
  * Flow: Start -> POST /api/session -> greeting (TTS) -> mic
  *   en : StreamingSTT (AssemblyAI Universal-Streaming, temp token) -> final turn -> POST utterance -> reply (TTS)
- *   ko : TurnVAD cuts an utterance -> POST voice-turn (WAV) -> server transcribes with AssemblyAI -> reply (TTS)
- * End  -> whole-call WAV -> POST analyze (speaker labels, sentiment, key phrases, entities) -> brief
+ *   ko : StreamingSTT on Universal-3.6 Pro (engine "realtime"): greeting as agent_context at connect, each final turn
+ *        -> POST utterance (grounding + ledger on the server) -> UpdateConfiguration with the reply as agent_context,
+ *        this step's key terms and mode -> reply (TTS). The ledger card shows every amount with its evidence.
+ * End  -> Terminate (wait for Termination) -> GET receipt (ledger vs AssemblyAI's record + summary)
+ *      -> whole-call WAV -> POST analyze (speaker labels, sentiment, key phrases, entities) -> brief
  * Typing in the composer works with no keys at all.
  */
 import { startMic, SAMPLE_RATE } from './audio.js';
@@ -12,7 +15,7 @@ import { StreamingSTT, TurnVAD } from './stt.js';
 import { encodeWav, durationSeconds } from './wav.js';
 import { createTts } from './tts.js';
 import { sttModeFor } from './lib/transcript.js';
-import { I18N, $, applyI18n, setBadge, addBubble, setPartial, renderSlots, renderPlace, renderPlan, renderChecklist, renderCheckoutForm, renderCheckoutResult, renderAnalysis, summaryText } from './ui.js';
+import { I18N, $, applyI18n, setBadge, addBubble, setPartial, renderSlots, renderPlace, renderPlan, renderChecklist, renderCheckoutForm, renderCheckoutResult, renderAnalysis, summaryText, renderLedger, renderListening, renderReceipt } from './ui.js';
 
 const PROMPT = 'Voice consultation between a Korean small business owner and a marketing consultant. Topics: Naver Place, Instagram, blog reviews, receipt reviews, press releases, monthly marketing budget in Korean won, neighborhoods in Seoul and Korea.';
 
@@ -36,6 +39,7 @@ const app = {
 const els = {
   transcript: $('#transcript'), slots: $('#slots'), place: $('#place'), plan: $('#plan'), checkout: $('#checkout'), checklist: $('#checklist'), analysis: $('#analysis'),
   cardPlan: $('#card-plan'), cardChecklist: $('#card-checklist'), cardAnalysis: $('#card-analysis'),
+  cardLedger: $('#card-ledger'), ledger: $('#ledger'), cardReceipt: $('#card-receipt'), receipt: $('#receipt'), listening: $('#listening'),
   btnCall: $('#btn-call'), btnCallLabel: $('#btn-call-label'), btnEnd: $('#btn-end'), state: $('#call-state'), meter: $('#meter'), mode: $('#call-mode'), timer: $('#call-timer'),
   composer: $('#composer'), input: $('#composer-input'), footCatalog: $('#foot-catalog'),
 };
@@ -79,6 +83,10 @@ async function loadHealth() {
 }
 
 function updateSide(r) {
+  if (r.ledger) {
+    els.cardLedger.hidden = false;
+    renderLedger(els.ledger, r.ledger, app.lang);
+  }
   if (r.profile) {
     app.session.profile = r.profile;
     renderSlots(els.slots, r.profile, app.lang, { problemLabels: problemLabelMap() });
@@ -114,16 +122,18 @@ async function speak(text) {
   else if (!app.ended) setState(t().idle);
 }
 
-async function sendUtterance(text, { tag = '' } = {}) {
+async function sendUtterance(text, { tag = '', meta = null } = {}) {
   if (!app.session || app.busy) return;
   app.busy = true;
   addBubble(els.transcript, 'owner', text, { tag, lang: app.lang });
   setState(t().thinking);
   try {
-    const r = await api(`/api/session/${app.session.id}/utterance`, { method: 'POST', json: { text, meta: { via: tag || 'text' } } });
+    const r = await api(`/api/session/${app.session.id}/utterance`, { method: 'POST', json: { text, meta: meta || { via: tag || 'text' } } });
     app.session.history.push({ role: 'user', text }, { role: 'agent', text: r.reply });
     addBubble(els.transcript, 'agent', r.reply, { tag: r.source === 'llm' ? 'llm' : 'rules', lang: app.lang });
     updateSide(r);
+    // tell Universal-3.6 Pro what the agent is about to ask and what to listen for next, before it is spoken
+    if (r.listen && app.stt) app.stt.updateConfig(r.listen);
     app.busy = false;
     await speak(r.reply);
   } catch (err) {
@@ -163,8 +173,10 @@ async function startCall() {
   els.btnCall.disabled = true;
   setState(t().connecting);
   try {
-    const s = await api('/api/session', { method: 'POST', json: { lang: app.lang } });
-    app.session = { id: s.sessionId, profile: {}, plan: null, brief: null, history: [{ role: 'agent', text: s.greeting }] };
+    // Korean runs on the grounded path: amounts are read back and only a yes makes them the budget
+    const s = await api('/api/session', { method: 'POST', json: { lang: app.lang, engine: app.lang === 'ko' ? 'realtime' : 'text' } });
+    app.session = { id: s.sessionId, engine: s.engine, listen: s.listen || null, profile: {}, plan: null, brief: null, history: [{ role: 'agent', text: s.greeting }] };
+    if (s.engine === 'realtime') { els.cardLedger.hidden = false; renderLedger(els.ledger, [], app.lang); }
     app.ended = false;
     app.startedAt = Date.now();
     app.timer = setInterval(tick, 1000);
@@ -204,16 +216,23 @@ async function startVoice() {
     return;
   }
   if (app.mode === 'stream') {
+    const ko = app.lang === 'ko';
     app.stt = new StreamingSTT({
       lang: app.lang,
-      prompt: PROMPT,
+      prompt: ko ? undefined : PROMPT,
+      listen: ko ? app.session.listen : null, // greeting as agent_context, intake key terms
+      languageCodes: ko ? ['ko', 'en'] : null, // owners mix in English words; measured format is a JSON list
       getToken: () => api('/api/assemblyai/token'),
       onEvent: (ev) => {
         if (ev.type === 'partial') setPartial(els.transcript, ev.text);
-        if (ev.type === 'final') { setPartial(els.transcript, ''); sendUtterance(ev.text, { tag: ev.languageCode || 'stream' }); }
+        if (ev.type === 'final') {
+          setPartial(els.transcript, '');
+          sendUtterance(ev.text, { tag: ev.languageCode || 'stream', meta: { item_id: 'turn_' + ev.order, via: ko ? 'realtime' : 'stream', language_code: ev.languageCode || null } });
+        }
       },
       onStatus: (st) => {
-        if (st.type === 'begin') setState(t().listening, 'is-live');
+        if (st.type === 'begin') { setState(t().listening, 'is-live'); renderListening(els.listening, app.stt?.config, app.lang); }
+        if (st.type === 'config') renderListening(els.listening, st.config, app.lang);
         if (st.type === 'error') addBubble(els.transcript, 'system', `AssemblyAI: ${st.message || 'socket error'}`);
         if (st.type === 'close' && !app.ended) addBubble(els.transcript, 'system', `AssemblyAI session closed (${st.code}${st.reason ? ` ${st.reason}` : ''})`);
       },
@@ -234,7 +253,12 @@ async function startVoice() {
 }
 
 function onFrame(pcm, rms) {
-  if (app.speaking || app.ended) return; // half-duplex: ignore the mic while the consultant talks
+  if (app.ended) return;
+  if (app.speaking) {
+    // half-duplex: the mic is ignored while the consultant talks, but the stream keeps real-time pace with silence
+    if (app.mode === 'stream') app.stt?.send(new Int16Array(pcm.length));
+    return;
+  }
   app.recording.push(pcm);
   if (app.mode === 'stream') app.stt?.send(pcm);
   else if (!app.busy) app.vad?.feed(pcm, rms);
@@ -250,7 +274,8 @@ async function endCall() {
   els.btnCall.setAttribute('aria-pressed', 'false');
   els.btnCallLabel.textContent = t().start;
   setPartial(els.transcript, '');
-  if (app.stt) { await app.stt.stop(); app.stt = null; }
+  if (app.stt) { await app.stt.stop(); app.stt = null; } // waits up to 5 s for Termination
+  els.listening.hidden = true;
   if (app.vad) { app.vad.reset(); app.vad = null; }
   if (app.mic) { app.mic.stop(); app.mic = null; }
   els.meter.style.width = '0%';
@@ -264,6 +289,7 @@ async function endCall() {
   addBubble(els.transcript, 'system', t().ended);
   setState(t().ended);
   addActions();
+  loadReceipt();
 
   const seconds = durationSeconds(app.recording, SAMPLE_RATE);
   if (app.health?.assemblyai?.configured && seconds >= 2) {
@@ -281,6 +307,19 @@ async function endCall() {
   } else if (!app.health?.assemblyai?.configured) {
     els.cardAnalysis.hidden = false;
     els.analysis.innerHTML = `<span class="busy">${t().noKeyAnalyze}</span>`;
+  }
+}
+
+async function loadReceipt() {
+  if (!app.session) return;
+  els.cardReceipt.hidden = false;
+  renderReceipt(els.receipt, null, app.lang);
+  try {
+    const r = await api('/api/session/' + app.session.id + '/receipt');
+    if (r.pending) { els.receipt.textContent = r.message; return; }
+    renderReceipt(els.receipt, r, app.lang);
+  } catch (err) {
+    els.receipt.textContent = 'receipt: ' + err.message;
   }
 }
 
@@ -316,6 +355,11 @@ function resetUi() {
   els.cardPlan.hidden = true;
   els.cardChecklist.hidden = true;
   els.cardAnalysis.hidden = true;
+  els.cardLedger.hidden = true;
+  els.cardReceipt.hidden = true;
+  els.listening.hidden = true;
+  els.ledger.innerHTML = '';
+  els.receipt.innerHTML = '';
   els.place.hidden = true;
   els.checkout.innerHTML = '';
   delete els.checkout.dataset.ready;
