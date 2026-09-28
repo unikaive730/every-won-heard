@@ -145,7 +145,7 @@ test('demo call: the plan uses only allowlisted products under generic names; ch
   assert.equal(r.plan.demo, true);
   assert.equal(r.plan.total_cost, 478_000);
   assert.equal(r.plan.spoken_total, 'four hundred seventy-eight thousand won');
-  for (const l of r.plan.lines) assert.ok(ALLOWED_PRODUCT_IDS.includes(l.productId));
+  for (const l of r.plan.lines) assert.ok(ALLOWED_PRODUCT_IDS.includes(l.product_id));
   assert.doesNotMatch(JSON.stringify(r.plan), BRANDS);
   assert.equal(placeCalls, 0, 'no real store lookups from the public demo');
 
@@ -212,7 +212,7 @@ test('upload size is capped in demo mode', async () => {
 });
 
 test('outside demo mode the demo checkout route does not exist', async () => {
-  const app = createApp({ assemblyai: aai(), mcp: liveMcp(), llm: null, gateway: null, demo: false, logger: quiet });
+  const app = createApp({ assemblyai: aai(), mcp: liveMcp(), llm: null, gateway: null, demoMode: false, logger: quiet });
   const b = await listen(app);
   const r = await fetch(`${b}/demo-checkout/s_anything1`);
   assert.equal(r.status, 404);

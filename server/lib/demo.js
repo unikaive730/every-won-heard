@@ -48,7 +48,7 @@ export const DEMO_CHECKOUT_TEXT = 'Demo checkout. No payment is taken.';
 const SESSION_ID = /^[A-Za-z0-9_-]{4,80}$/;
 
 /** Base URL for links the server hands out: PUBLIC_BASE_URL, else the request's own host. */
-export function publicBaseUrl(req, env = process.env) {
+export function baseUrlOf(req, env = process.env) {
   const fixed = String(env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
   if (fixed) return fixed;
   const host = String(req?.headers?.host || 'localhost').replace(/[^A-Za-z0-9.:[\]-]/g, '');

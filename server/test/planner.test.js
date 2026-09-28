@@ -154,12 +154,12 @@ test('demo plan at 480,000: audit + press + flyer + 21 blog posts = 478,000 (des
   assert.equal(plan.template, 'allowlist');
   assert.equal(plan.demo, true);
   assertConsistent(plan);
-  assert.deepEqual(plan.lines.map((l) => [l.productId, l.qty]), [[282, 1], [142, 1], [251, 1], [106, 21]]);
+  assert.deepEqual(plan.lines.map((l) => [l.product_id, l.qty]), [[282, 1], [142, 1], [251, 1], [106, 21]]);
   assert.equal(plan.total_cost, 478_000);
   assert.equal(plan.spoken_total, 'four hundred seventy-eight thousand won');
-  assert.equal(plan.spoken_budget, 'four hundred eighty thousand won');
+  assert.equal(plan.spoken_budget, 'four hundred eighty thousand won a month');
   assert.equal(plan.lines[0].name, 'Map listing audit report');
-  assert.equal(plan.lines[3].spoken, 'twenty-one blog posts by recruited bloggers');
+  assert.equal(plan.lines[3].spoken, 'twenty-one sponsored blog posts');
   assert.equal(plan.lines[3].spoken_cost, 'one hundred eighty-nine thousand won');
   assert.deepEqual(plan.channels.map((c) => c.key), ['listing', 'press', 'print', 'blog']);
   assert.match(plan.summary, /Mangwon restaurant/);
@@ -175,7 +175,8 @@ test('demo plan at 380,000: 10 blog posts, total 379,000; Korean names and spoke
   const plan = buildPlan(p, snapshot, { demo: true });
   assertConsistent(plan);
   assert.equal(plan.total_cost, 379_000);
-  assert.deepEqual(plan.lines.map((l) => [l.productId, l.qty]), [[282, 1], [142, 1], [251, 1], [106, 10]]);
+  assert.deepEqual(plan.lines.map((l) => [l.product_id, l.qty]), [[282, 1], [142, 1], [251, 1], [106, 10]]);
+  assert.equal(plan.spoken_budget, '월 38만 원');
   assert.equal(plan.spoken_total, '37만 9천 원');
   assert.deepEqual(plan.lines.map((l) => l.name), ['지도 매장정보 진단 보고서', '보도자료 배포(베이직)', '전단지 제작', '블로거 섭외 후기 글']);
   assert.equal(plan.lines[3].spoken, '블로거 섭외 후기 글 10건');
@@ -190,21 +191,23 @@ test('demo plan: total <= budget for every budget from 10,000 to 3,000,000, only
       p.budget_krw = b;
       const plan = buildPlan(p, full, { demo: true });
       assertConsistent(plan);
-      for (const l of plan.lines) assert.ok(DISPLAY_NAMES.has(l.productId), `${l.productId} is allowlisted`);
+      for (const l of plan.lines) assert.ok(DISPLAY_NAMES.has(l.product_id), `${l.product_id} is allowlisted`);
       assert.doesNotMatch(spokenText(plan), BRANDS);
     }
   }
 });
 
-test('demo plan: small budgets fall back to what fits, online shops skip the map audit and print', () => {
-  const small = buildPlan(Object.assign(profileFrom('en', 'a cafe in Seongsu'), { budget_krw: 300_000 }), snapshot, { demo: true });
-  assert.deepEqual(small.lines.map((l) => [l.productId, l.qty]), [[282, 1], [142, 1], [251, 1], [112, 3]]);
-  assert.equal(small.total_cost, 298_000);
-  assert.equal(small.lines[3].spoken, 'three retouched photos');
-  const online = buildPlan(profileFrom('en', 'I sell skincare on my online store, 500,000 won a month'), snapshot, { demo: true });
-  assert.ok(!online.lines.some((l) => [282, 251, 249].includes(l.productId)), 'no map audit or print for an online store');
-  assert.ok(online.lines.some((l) => l.productId === 106));
-  assertConsistent(online);
+test('demo plan: fixed items only while the minimum blog order still fits; poster stands in for the flyer; leftovers buy retouching', () => {
+  const plan = (b) => buildPlan(Object.assign(profileFrom('en', 'a cafe in Seongsu'), { budget_krw: b }), snapshot, { demo: true });
+  const at = (b) => plan(b).lines.map((l) => [l.product_id, l.qty]);
+  assert.deepEqual(at(300_000), [[282, 1], [142, 1], [106, 12]], 'the flyer would leave no room for 10 posts');
+  assert.equal(plan(300_000).total_cost, 298_000);
+  assert.deepEqual(at(356_000), [[282, 1], [142, 1], [249, 1], [106, 11]], 'the poster fits where the flyer did not');
+  assert.deepEqual(at(50_000), [[112, 16]], 'below the blog minimum only retouching fits');
+  assert.equal(plan(50_000).lines[0].spoken, 'sixteen retouched photos');
+  assert.deepEqual(at(1_000_000), [[282, 1], [142, 1], [251, 1], [106, 79]]);
+  assert.equal(plan(1_000_000).total_cost, 1_000_000);
+  assert.deepEqual(at(492_000), [[282, 1], [142, 1], [251, 1], [106, 22], [112, 1]], '5,000 left buys one retouched photo');
 });
 
 test('template choice: DEMO_MODE env, explicit option, and an allowlist-only catalog', () => {
@@ -227,6 +230,7 @@ test('template choice: DEMO_MODE env, explicit option, and an allowlist-only cat
 
 test('spokenLine and placeName', () => {
   assert.equal(spokenLine({ productId: 282, name: 'Map listing audit report', qty: 1 }, 'en'), 'one map listing audit report');
+  assert.equal(spokenLine({ productId: 251, name: 'Flyer design and print', qty: 2 }, 'en'), 'two flyer designs and prints');
   assert.equal(spokenLine({ productId: 112, name: '사진 보정', qty: 12 }, 'ko'), '사진 보정 12장');
   assert.equal(placeName('망원', 'en'), 'Mangwon');
   assert.equal(placeName('망원', 'ko'), '망원');

@@ -132,17 +132,17 @@ export const DEMO_GROUPS = {
   },
 };
 
-// Fixed-price items first, the rest of the budget to blog posts, then small fillers (design 6-9:
-// 480,000 -> audit + press + flyer + 21 posts = 478,000; 380,000 -> 10 posts = 379,000).
-// `local` items are skipped for online-only businesses. `cap` keeps posts spread over 30 days.
-const DEMO_STEPS = [
-  { id: 282, qty: 1, local: true },
-  { id: 142, qty: 1 },
-  { id: 251, qty: 1, local: true },
-  { id: 106, fill: true, cap: 40 },
-  { id: 249, qty: 1, local: true },
-  { id: 112, fill: true, cap: 30 },
-];
+// The same rules as the Voice Agent's build_plan (design 6-9), so a budget gets the same plan in either
+// language: fixed-price items first, each only if the rest still covers the minimum blog order; the poster
+// only stands in for a flyer that did not fit; the rest buys blog posts; a leftover of 3,000 won or more
+// buys photo retouching (up to 30 images).
+//   480,000 -> audit 100,000 + press 90,000 + flyer 99,000 + 21 blog posts 189,000 = 478,000
+//   380,000 -> audit 100,000 + press 90,000 + flyer 99,000 + 10 blog posts  90,000 = 379,000
+const DEMO_FIXED = [282, 142, 251];
+const DEMO_FLYER = 251;
+const DEMO_POSTER = 249;
+const DEMO_FILL = 106;
+const DEMO_LEFTOVER = { id: 112, cap: 30 };
 
 function templateFor(businessType) {
   if (businessType === 'clinic') return TEMPLATES.clinic;
@@ -249,28 +249,39 @@ export function allocate(profile, catalog, { budget } = {}) {
 }
 
 /**
- * The allowlist template: walk DEMO_STEPS in order, take each item that still fits.
- * Always returns total_cost <= budget.
+ * The allowlist template (rules above). Always returns total_cost <= budget.
  */
 export function allocateAllowlist(profile, catalog, { budget } = {}) {
   const budgetKrw = budget || profile.budget_krw || DEFAULT_BUDGET_KRW;
   const lang = langOf(profile);
-  const local = !profile.business_type || LOCAL_TYPES.has(profile.business_type);
-  let running = 0;
+  const priced = (id) => {
+    const p = byId(catalog, id);
+    return p && p.aiOrderable && p.unitPrice > 0 && DISPLAY_NAMES.has(id) ? { p, unit: p.unitPrice, min: p.minOrderUnit || 1, max: p.maxOrderUnit || Infinity } : null;
+  };
+  let left = budgetKrw;
   const picked = [];
-  for (const step of DEMO_STEPS) {
-    if (step.local && !local) continue;
-    const product = byId(catalog, step.id);
-    if (!product || !product.aiOrderable || !product.unitPrice || !DISPLAY_NAMES.has(product.productId)) continue;
-    const unit = product.unitPrice;
-    const min = product.minOrderUnit || 1;
-    const max = product.maxOrderUnit || Infinity;
-    const left = budgetKrw - running;
-    let qty = step.fill ? Math.min(Math.floor(left / unit), step.cap, max) : Math.min(Math.max(step.qty, min), max);
-    if (qty < min || qty * unit > left) continue;
-    running += qty * unit;
-    picked.push(itemFor(product, qty, lang));
+  const add = (x, qty) => { picked.push(itemFor(x.p, qty, lang)); left -= qty * x.unit; };
+  const fill = priced(DEMO_FILL);
+  const reserve = fill ? fill.min * fill.unit : 0; // keep room for the minimum blog order
+  let flyerIn = false;
+  for (const id of [...DEMO_FIXED, DEMO_POSTER]) {
+    if (id === DEMO_POSTER && flyerIn) continue;
+    const x = priced(id);
+    if (x && x.min * x.unit <= left - reserve) {
+      add(x, x.min);
+      if (id === DEMO_FLYER) flyerIn = true;
+    }
   }
+  if (fill) {
+    const qty = Math.min(Math.floor(left / fill.unit), fill.max);
+    if (qty >= fill.min) add(fill, qty);
+  }
+  const extra = priced(DEMO_LEFTOVER.id);
+  if (extra) {
+    const qty = Math.min(Math.floor(left / extra.unit), DEMO_LEFTOVER.cap, extra.max);
+    if (qty >= extra.min) add(extra, qty);
+  }
+  const running = budgetKrw - left;
   const groups = new Map();
   for (const it of picked) {
     const g = DISPLAY_NAMES.get(it.productId).group;
@@ -426,9 +437,9 @@ export function buildPlan(profile, catalog, opts = {}) {
     total_krw: alloc.total_cost,
     unspent_krw: alloc.budget_krw - alloc.total_cost,
     // numbers in words, so a voice agent never has to turn digits into speech itself
-    spoken_budget: spokenWon(alloc.budget_krw, lang),
+    spoken_budget: lang === 'ko' ? `월 ${spokenWon(alloc.budget_krw, lang)}` : `${spokenWon(alloc.budget_krw, lang)} a month`,
     spoken_total: spokenWon(alloc.total_cost, lang),
-    lines: items.map((i) => ({ productId: i.productId, name: i.name, qty: i.qty, unit_krw: i.unitPrice, cost_krw: i.cost, spoken: spokenLine(i, lang), spoken_cost: spokenWon(i.cost, lang) })),
+    lines: items.map((i) => ({ product_id: i.productId, name: i.name, qty: i.qty, unit_krw: i.unitPrice, cost_krw: i.cost, spoken: spokenLine(i, lang), spoken_cost: spokenWon(i.cost, lang) })),
     channels: alloc.channels,
     inquiry_items: inquiry,
     assumptions,

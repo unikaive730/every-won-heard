@@ -25,7 +25,7 @@
       "group": "print",
       "en": "Flyer design and print",
       "ko": "전단지 제작",
-      "spoken_en": ["flyer design and print job", "flyer design and print jobs"],
+      "spoken_en": ["flyer design and print", "flyer designs and prints"],
       "unit_ko": "건"
     },
     {
@@ -33,7 +33,7 @@
       "group": "blog",
       "en": "Sponsored blog post by a recruited blogger",
       "ko": "블로거 섭외 후기 글",
-      "spoken_en": ["blog post by a recruited blogger", "blog posts by recruited bloggers"],
+      "spoken_en": ["sponsored blog post", "sponsored blog posts"],
       "unit_ko": "건"
     },
     {
@@ -41,7 +41,7 @@
       "group": "print",
       "en": "Poster design and print",
       "ko": "포스터 제작",
-      "spoken_en": ["poster design and print job", "poster design and print jobs"],
+      "spoken_en": ["poster design and print", "poster designs and prints"],
       "unit_ko": "건"
     },
     {

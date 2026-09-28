@@ -35,7 +35,7 @@ import { createGateway, templateCallSummary } from './lib/gateway.js';
 import { buildPlan, checkoutItems } from './lib/planner.js';
 import { mergeProfile } from './lib/extract.js';
 import { createGuard, guardOptionsFromEnv, clientIp, PAUSED_MESSAGE } from './lib/guard.js';
-import { isDemoMode, allowlistCatalog, displayName, DISPLAY_NAMES, ALLOWED_PRODUCT_IDS, demoCheckout, publicBaseUrl, renderDemoCheckoutPage, isSessionId } from './lib/demo.js';
+import { isDemoMode, allowlistCatalog, displayName, DISPLAY_NAMES, ALLOWED_PRODUCT_IDS, demoCheckout, baseUrlOf, renderDemoCheckoutPage, isSessionId } from './lib/demo.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const MAX_BODY = 40 * 1024 * 1024;
@@ -99,7 +99,7 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; cha
 /**
  * Build the HTTP server with injectable dependencies (tests pass fakes).
  */
-export function createApp({ assemblyai, mcp, llm, agent, gateway, guard, demo = isDemoMode(), trustProxyHops, receiptPoll = { intervalMs: 5000, tries: 6 }, staticDir = null, logger = console } = {}) {
+export function createApp({ assemblyai, mcp, llm, agent, gateway, guard, demoMode = isDemoMode(), trustProxyHops, receiptPoll = { intervalMs: 5000, tries: 6 }, staticDir = null, logger = console } = {}) {
   const aai = assemblyai || createAssemblyAI({ logger });
   const mcpClient = mcp || createMcpClient({ logger });
   const llmClient = llm === undefined ? createLlm({ logger }) : llm;
@@ -107,6 +107,7 @@ export function createApp({ assemblyai, mcp, llm, agent, gateway, guard, demo = 
   const guardEnv = guardOptionsFromEnv();
   const guardClient = guard || createGuard(guardEnv);
   const proxyHops = trustProxyHops ?? guardEnv.trustProxyHops;
+  const demo = Boolean(demoMode);
   // DEMO_MODE: the planner, /api/products and health only ever see the allowlisted products
   const getCatalog = async () => {
     const cat = await mcpClient.listProducts();
@@ -278,7 +279,7 @@ export function createApp({ assemblyai, mcp, llm, agent, gateway, guard, demo = 
         if (demo) {
           // the public demo never creates a payment link and keeps no name or phone number
           if (!session.plan) return json(res, 400, { error: 'no_plan' });
-          session.checkout = demoCheckout(session, publicBaseUrl(req));
+          session.checkout = demoCheckout(session, baseUrlOf(req));
           return json(res, 200, session.checkout);
         }
         const customerName = String(body.customerName || '').trim();
@@ -360,7 +361,7 @@ export function createApp({ assemblyai, mcp, llm, agent, gateway, guard, demo = 
       if (ticket && (failed || res.statusCode >= 400)) guardClient.refund(ticket);
     }
   });
-  return { server, agent: ag, mcp: mcpClient, assemblyai: aai, llm: llmClient, guard: guardClient, demo };
+  return { server, agent: ag, mcp: mcpClient, assemblyai: aai, llm: llmClient, guard: guardClient, demoMode: demo };
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
@@ -373,7 +374,7 @@ if (isMain) {
   app.server.listen(port, () => {
     const v = app.guard.status();
     console.log(`[server] http://localhost:${port}  assemblyai=${app.assemblyai.enabled ? 'on' : 'OFF (no key)'}  llm=${app.llm ? app.llm.model : 'rules-only'}  mcp=${app.mcp.url}`);
-    console.log(`[server] demo=${app.demo ? 'on' : 'off'}  voice=${v.paused ? 'PAUSED' : 'on'}  limits=${v.limits ? `${v.limits.per_ip_minute}/min ${v.limits.per_ip_day}/day per IP, ${v.limits.daily_cap} calls/day` : 'off'}`);
+    console.log(`[server] demo=${app.demoMode ? 'on' : 'off'}  voice=${v.paused ? 'PAUSED' : 'on'}  limits=${v.limits ? `${v.limits.per_ip_minute}/min ${v.limits.per_ip_day}/day per IP, ${v.limits.daily_cap} calls/day` : 'off'}`);
     if (staticDir) console.log(`[server] serving ${staticDir}`);
   });
 }
