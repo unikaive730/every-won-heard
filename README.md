@@ -8,6 +8,9 @@ the owner's own words or to the catalog.
 
 Built for the lablab.ai x AssemblyAI Voice Agent Hackathon (September 2026). MIT licensed.
 
+**Live demo: https://everywon.marketpilot.it** (press *Watch a demo call* for a full scripted call with a
+synthesized caller, or *Start call* to talk to it; voice calls are limited per day, typing always works).
+
 ```
 npm ci
 cp .env.example .env      # add ASSEMBLYAI_API_KEY
@@ -205,7 +208,21 @@ npm run build        # web app into dist/
 Without a key the app still runs: the page shows `no key` and the consultation works by typing. On
 your own machine `DEMO_MODE=0` (the default) shows the full catalog and turns the call limits off.
 
-### Render (the public demo)
+### The public demo (https://everywon.marketpilot.it)
+
+One `node server/index.js` process on a small Ubuntu VM, kept running by pm2 behind nginx with a Let's
+Encrypt certificate. The web app is built elsewhere (`npm run build`) and copied in as `dist/`, so the
+server only needs `npm ci --omit=dev`. The settings are the ones the Render Blueprint below sets, plus
+`PUBLIC_BASE_URL=https://everywon.marketpilot.it`.
+
+- nginx: `client_max_body_size 45m` (whole-call audio for `/analyze`), `proxy_read_timeout 300s`
+  (`/analyze` waits up to 240 s), and `proxy_set_header X-Forwarded-For $remote_addr` with
+  `TRUST_PROXY_HOPS=1`, so the per-IP limits see the caller and not nginx.
+- pm2 runs the Node binary with the script as its argument
+  (`pm2 start /usr/bin/node --name everywon -- server/index.js`). `server/index.js` only starts listening
+  when it is the process's main script, and pm2's own wrapper would hide that.
+
+### Render
 
 `render.yaml` is a Blueprint for one free Node web service: build `npm ci --include=dev && npm run
 build`, start `node server/index.js`, health check `/`. In the dashboard choose *New → Blueprint*, pick
