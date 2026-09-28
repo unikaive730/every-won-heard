@@ -233,7 +233,7 @@ export function createApp({ assemblyai, mcp, llm, agent, gateway, guard, demoMod
         if (audio.length < 1000) return json(res, 400, { error: 'audio too short' });
         const lang = url.searchParams.get('lang') || session.lang;
         try {
-          const t = await aai.transcribe(audio, { languageCode: lang === 'ko' ? 'ko' : 'en', keyterms: ['네이버 플레이스', '인스타그램', '영수증 리뷰', '마켓파일럿'], pollIntervalMs: 700 });
+          const t = await aai.transcribe(audio, { languageCode: lang === 'ko' ? 'ko' : 'en', keyterms: ['마켓파일럿', '만 원', '한 달', '체험단', '보도자료', '전단지'], pollIntervalMs: 700 });
           const text = String(t.text || '').trim();
           if (!text) return json(res, 200, { transcript: '', reply: null, empty: true });
           const r = await ag.handleUtterance(session.id, text, { meta: { via: 'turn', assemblyaiId: t.id, languageCode: t.language_code } });
