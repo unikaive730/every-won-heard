@@ -219,6 +219,9 @@ test('tools: a transcript that arrives after the tool call is waited for (up to 
 
 test('heard: duplicates are ignored, the agent\'s read-back marks the row read back', async () => {
   const { session, call } = setup();
+  const greeting = session.history[0].text;
+  recordHeard(session, { role: 'agent', text: greeting });
+  assert.equal(session.history.filter((h) => h.role === 'agent').length, 1, 'the greeting transcript is not stored twice');
   assert.equal(recordHeard(session, { item_id: 'i1', text: '480,000 won.' }).ok, true);
   assert.equal(recordHeard(session, { item_id: 'i1', text: '480,000 won.' }).duplicate, true);
   assert.equal(recordHeard(session, { text: '   ' }).ok, false);

@@ -279,7 +279,9 @@ export function recordHeard(session, { item_id = null, text, at = null, via = 'v
   const now = Date.now();
   if (role === 'agent') {
     if (session.va) session.va.agentLines += 1;
-    session.history.push({ role: 'agent', text: clean, at: now, source: 'voice-agent', item_id });
+    // the greeting is already history[0] from session creation; its transcript.agent is not a second line
+    const prev = session.history[session.history.length - 1];
+    if (!(prev?.role === 'agent' && prev.text === clean)) session.history.push({ role: 'agent', text: clean, at: now, source: 'voice-agent', item_id });
     const pending = session.ledger.pending();
     if (pending && pending.status === 'heard' && moneyValues(clean).includes(pending.value_krw)) session.ledger.markReadBack(pending.id, now);
     return { ok: true, role: 'agent' };
