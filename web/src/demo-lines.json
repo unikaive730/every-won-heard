@@ -10,6 +10,6 @@
     { "id": "C4", "text": "Wait. Cut it to three hundred eighty thousand. And can you take twenty percent off?", "bargeIn": { "afterTool": "build_plan", "delayMs": 2500 } },
     { "id": "C5", "text": "Yes." },
     { "id": "C6", "text": "Okay. Go ahead." },
-    { "id": "C7", "text": "Thanks. Bye." }
+    { "id": "C7", "text": "Thanks, bye." }
   ]
 }

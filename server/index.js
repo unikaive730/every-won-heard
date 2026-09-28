@@ -101,7 +101,7 @@ async function readJson(req) {
   try { return JSON.parse(buf.toString('utf8')); } catch { throw Object.assign(new Error('invalid JSON'), { status: 400 }); }
 }
 
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.wav': 'audio/wav' };
 
 /**
  * Build the HTTP server with injectable dependencies (tests pass fakes).

@@ -112,6 +112,13 @@ test('POST /heard + /tool: result is a JSON string for tool.result, the next sta
   t = await post(stored, `/api/session/${id}/tool`, { call_id: 'c6', name: 'create_checkout_link', arguments: {}, last_item_id: 'u5' });
   const url = JSON.parse(t.body.result).url;
   assert.match(url, new RegExp(`^http://127\\.0\\.0\\.1:\\d+/demo-checkout/${id}$`));
+  // the link the agent hands out opens the demo checkout page with the voice plan (generic names, catalog prices)
+  const page = await fetch(url);
+  assert.equal(page.status, 200);
+  const html = await page.text();
+  assert.match(html, /Demo checkout\. No payment is taken\./);
+  assert.match(html, /Map listing audit report/);
+  assert.match(html, /₩478,000/);
 
   const ledger = await (await fetch(`${stored}/api/session/${id}/ledger`)).json();
   assert.deepEqual(ledger.rows.filter((r) => r.source === 'owner').map((r) => r.label), ['range · ₩400,000 / ₩500,000 · not accepted', 'four hundred eighty thousand won · ₩480,000 · confirmed']);
