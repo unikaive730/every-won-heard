@@ -12,7 +12,8 @@
  *   record_shop            enums + the neighborhood                      s0 -> s1
  *   record_budget          owner_words, period. grounding.js re-reads the owner's own transcript (POST /heard)
  *                          and decides: ambiguous_amount / no_amount_heard / amount_mismatch / ok      -> s2
- *   confirm_budget         answer yes|no, checked against the owner's last turn (YES / NO of agent.js)
+ *   confirm_budget         answer yes|no, checked against the owner's last turn (YES / NO of agent.js), and only
+ *                          after the agent read the amount back (when the client posts transcript.agent to /heard)
  *                          yes -> confirmed -> s3, no -> s1
  *   build_plan             only from the confirmed budget in the ledger (voice-plan.js)               -> s4
  *   create_checkout_link   only after the plan and a go-ahead turn. DEMO_MODE=1: a demo URL, no payment
@@ -32,10 +33,11 @@ import { listenFor } from './listen.js';
 const PROBLEM_KEY = { map_visibility: 'place_rank', social_growth: 'instagram' }; // enum -> extract.js key
 const DISCOUNT = /discount|\d+\s?%\s?off|percent off|cheaper|price cut|lower (the )?price|\bdeal\b/i;
 const FILLER = /^(uh+|um+|er+|oh|well|so|hmm+)[\s,.!]+/i;
+const norm = (s) => String(s || '').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
 
 export function initVoiceAgent(session) {
   if (!session.va) {
-    session.va = { state: 's0', calls: [], budgetIdx: null, planIdx: null, planRowId: null, plan: null, endRequested: false };
+    session.va = { state: 's0', calls: [], budgetIdx: null, planIdx: null, planRowId: null, plan: null, endRequested: false, agentLines: 0 };
   }
   session.step = STEP_OF[session.va.state];
   session.listen = listenFor(session.step, 'en');
@@ -114,7 +116,13 @@ export function createToolRunner({ getCatalog, createCheckout = null, demoMode =
       if (pending) { ledger.deny(pending.id); ledger.get(pending.id).reason = 'corrected'; }
       let heardKrw = d.amount_krw;
       let body;
-      if (d.error === 'amount_mismatch') {
+      // "Eighty thousand" after "Four hundred." / "Eighty thousand.": the model passed a fragment of what the owner
+      // said. That is not an invented number, so the server's reading of the whole phrase goes through as ok.
+      const fragment = d.error === 'amount_mismatch' && Boolean(words) && norm((d.turns || []).map((t) => t.text).join(' ')).includes(norm(words));
+      if (fragment) {
+        heardKrw = d.heard_krw;
+        body = { ok: true, heard_krw: heardKrw, read_back: readBack(heardKrw, 'en'), period, owner_said: d.phrase, next_step: "Read back read_back word for word and ask if it's right." };
+      } else if (d.error === 'amount_mismatch') {
         // the model's words carry a different amount than the owner's transcript: reject the model's number,
         // keep what the owner said (the server's reading) and have it read back
         ledger.addRejected({ reason: 'mismatch', value_krw: d.model_krw, options: [d.heard_krw], phrase: d.phrase || null, ...common });
@@ -123,11 +131,11 @@ export function createToolRunner({ getCatalog, createCheckout = null, demoMode =
       } else {
         body = { ok: true, heard_krw: heardKrw, read_back: d.read_back, period, next_step: "Read back read_back word for word and ask if it's right." };
       }
-      const row = ledger.addHeard({ value_krw: heardKrw, phrase: d.phrase || null, paraphrased: Boolean(d.paraphrased), forced: Boolean(d.forced) || d.error === 'amount_mismatch', ...common });
+      const row = ledger.addHeard({ value_krw: heardKrw, phrase: d.phrase || null, paraphrased: Boolean(d.paraphrased) && !fragment, forced: Boolean(d.forced) || d.error === 'amount_mismatch', ...common });
       row.period = period;
       session.va.budgetIdx = g.heard.length; // the yes has to come after this
       if (discountAsked) body.note = "The owner also asked for a discount. Say you can't give discounts and can only use catalog prices.";
-      return { error: d.error === 'amount_mismatch', next: 's2', body };
+      return { error: d.error === 'amount_mismatch' && !fragment, next: 's2', body };
     },
 
     async confirm_budget(session, args, { lastItemId }) {
@@ -141,6 +149,11 @@ export function createToolRunner({ getCatalog, createCheckout = null, demoMode =
       }
       const turn = answerTurn(session, lastItemId, session.va.budgetIdx);
       const readBackText = readBack(pending.value_krw, 'en');
+      // when the client relays the agent's own transcript, a yes only counts after the amount was actually read back
+      // (run 1: the agent re-asked instead of reading back, and the next scripted "yes" confirmed the amount)
+      if (session.va.agentLines > 0 && pending.status !== 'read_back') {
+        return { error: true, next: 's2', body: { error: 'not_read_back', read_back: readBackText, ask: "Read back read_back word for word and ask if it's right, then wait for the answer." } };
+      }
       if (!turn) return { error: true, next: 's2', body: { error: 'no_answer_yet', read_back: readBackText, ask: "Read back read_back and wait for the owner's yes or no." } };
       const text = answerText(turn);
       const saidYes = YES.some((re) => re.test(text));
@@ -265,6 +278,7 @@ export function recordHeard(session, { item_id = null, text, at = null, via = 'v
   if (!clean) return { ok: false, error: 'text required' };
   const now = Date.now();
   if (role === 'agent') {
+    if (session.va) session.va.agentLines += 1;
     session.history.push({ role: 'agent', text: clean, at: now, source: 'voice-agent', item_id });
     const pending = session.ledger.pending();
     if (pending && pending.status === 'heard' && moneyValues(clean).includes(pending.value_krw)) session.ledger.markReadBack(pending.id, now);

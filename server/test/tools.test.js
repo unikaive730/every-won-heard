@@ -228,3 +228,35 @@ test('heard: duplicates are ignored, the agent\'s read-back marks the row read b
   assert.ok(row.read_back_at >= row.heard_at);
   assert.equal(session.grounding.heard.length, 1, 'agent speech is not owner evidence');
 });
+
+test('tools: the model passing a fragment of a pause-split amount is not a mismatch (run 1: "Eighty thousand")', async () => {
+  const { say, call, session } = setup();
+  say('Four hundred.');
+  let r = await call('record_budget', { owner_words: 'Four hundred', period: 'monthly' });
+  assert.equal(r.body.error, 'no_amount_heard');
+  say('Eighty thousand.');
+  r = await call('record_budget', { owner_words: 'Eighty thousand', period: 'monthly' });
+  assert.equal(r.is_error, false);
+  assert.equal(r.body.heard_krw, 480_000);
+  assert.equal(r.body.read_back, 'four hundred eighty thousand won a month');
+  assert.equal(r.body.owner_said, 'Four hundred. Eighty thousand');
+  assert.deepEqual(session.ledger.rows.map((x) => [x.status, x.value_krw]), [['heard', 480_000]], 'no rejected row for a fragment');
+});
+
+test('tools: when agent transcripts are relayed, a yes only confirms an amount that was read back', async () => {
+  const { say, call, session } = setup();
+  say('480,000 won a month.');
+  await call('record_budget', { owner_words: '480,000 won a month', period: 'monthly' });
+  recordHeard(session, { role: 'agent', text: "Sorry, I didn't catch that. What's your monthly budget?" });
+  say("Yes, that's right.");
+  let r = await call('confirm_budget', { answer: 'yes' });
+  assert.equal(r.body.error, 'not_read_back');
+  assert.equal(r.body.read_back, 'four hundred eighty thousand won a month');
+  assert.equal(session.ledger.budget(), null);
+  recordHeard(session, { role: 'agent', text: 'Four hundred eighty thousand won a month, is that right?' });
+  say('Yes.');
+  r = await call('confirm_budget', { answer: 'yes' });
+  assert.equal(r.body.status, 'confirmed');
+  const row = session.ledger.budget();
+  assert.ok(row.heard_at <= row.read_back_at && row.read_back_at <= row.confirmed_at);
+});

@@ -135,3 +135,15 @@ test('receipt: a record_budget call with owner_words only still counts as eviden
   assert.equal(rec.matched.length, 1);
   assert.equal(rec.matched[0].tool_call_id, 'call_9');
 });
+
+test('receipt: an amount split over two timeline turns by a pause is matched by reading them together', () => {
+  const rows = [{ id: 'r3', source: 'owner', value_krw: 480_000, status: 'confirmed', item_id: 'x' }];
+  const timeline = { session_id: 's', turns: [
+    { turn_id: 'a', user_transcript: 'Four hundred.' },
+    { turn_id: 'b', user_transcript: 'Eighty thousand.' },
+  ] };
+  const rec = reconcile(rows, timeline);
+  assert.equal(rec.unmatched.length, 0);
+  assert.equal(rec.matched[0].matched_by, 'amount_two_turns');
+  assert.equal(rec.matched[0].user_transcript, 'Four hundred. Eighty thousand.');
+});
