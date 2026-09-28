@@ -6,6 +6,7 @@
 //   npm run build && node scripts/probe/web-browser-run.mjs --live --out DIR  # real Voice Agent API (paid)
 //   add --server to either: the page talks to server/index.js (DEMO_MODE=1, VOICE_GUARD=0, no LLM key; the
 //   child reads .env for the AssemblyAI key and VOICE_AGENT_ID). With --fake a token is minted but never used.
+//   or --url https://host: the page is a deployed server (no local server or stub; its guard and key apply).
 //
 // Puppeteer is not a dependency of this repo; point PUPPETEER_DIR at an installed copy
 // (default: ../marketing-monorepo/node_modules/puppeteer). No window opens (headless).
@@ -24,10 +25,12 @@ const args = process.argv.slice(2);
 const opt = (k, d) => (args.includes(k) ? args[args.indexOf(k) + 1] : d);
 const live = args.includes('--live');
 const fake = !live;
-const useServer = args.includes('--server');
+const remote = opt('--url', '').replace(/\/+$/, '');
+const useServer = args.includes('--server') || Boolean(remote);
 const port = Number(opt('--port', 8799));
+const base = remote || `http://localhost:${port}`;
 const maxSeconds = Number(opt('--max', 200));
-const out = path.resolve(opt('--out', path.join(root, '.probe-out', `${live ? 'live' : 'fake'}${useServer ? '-server' : ''}`)));
+const out = path.resolve(opt('--out', path.join(root, '.probe-out', `${live ? 'live' : 'fake'}${remote ? '-url' : useServer ? '-server' : ''}`)));
 mkdirSync(out, { recursive: true });
 
 const require = createRequire(import.meta.url);
@@ -35,7 +38,9 @@ const puppeteer = require(process.env.PUPPETEER_DIR || path.resolve(root, '..', 
 
 let stub = null;
 let child = null;
-if (useServer) {
+if (remote) {
+  // a deployed server: nothing to start here
+} else if (useServer) {
   // the product server serves dist/ in production mode; its log goes to out/server.log (never the key)
   child = spawn(process.execPath, [path.join(root, 'server', 'index.js')], {
     cwd: root,
@@ -55,7 +60,7 @@ if (useServer) {
 }
 const t0 = Date.now();
 const at = () => ((Date.now() - t0) / 1000).toFixed(1);
-console.log(`[run] ${useServer ? 'server' : 'stub'} on ${port} (${live ? 'LIVE token, 1 call' : 'fake socket'}), out ${out}`);
+console.log(`[run] ${remote ? `deployed server ${remote}` : `${useServer ? 'server' : 'stub'} on ${port}`} (${live ? 'LIVE token, 1 call' : 'fake socket'}), out ${out}`);
 
 const browser = await puppeteer.launch({ headless: true, args: ['--autoplay-policy=no-user-gesture-required', '--window-size=1920,1080'] });
 let page;
@@ -66,7 +71,7 @@ try {
   page.on('console', (m) => { if (['error', 'warning'].includes(m.type())) console.log(`[page ${m.type()}] ${m.text()}`); });
   page.on('pageerror', (e) => console.log(`[pageerror] ${e.message}`));
   if (fake) await page.evaluateOnNewDocument(readFileSync(path.join(here, 'fake-va-ws.js'), 'utf8'));
-  await page.goto(`http://localhost:${port}/?lang=en`, { waitUntil: 'networkidle0' });
+  await page.goto(`${base}/?lang=en`, { waitUntil: 'networkidle0' });
   await snap('0-idle');
   await page.click('#btn-demo');
 
@@ -105,7 +110,7 @@ try {
       if (useServer) {
         // what the product server recorded for this call: history (owner and agent lines), ledger, plan, checkout
         const sid = await page.evaluate(() => window.__ewh.app.session?.id || null).catch(() => null);
-        const get = async (p) => { try { return await (await fetch(`http://localhost:${port}${p}`)).json(); } catch { return null; } };
+        const get = async (p) => { try { return await (await fetch(`${base}${p}`)).json(); } catch { return null; } };
         if (sid) writeFileSync(path.join(out, 'server.json'), JSON.stringify({ session: await get(`/api/session/${sid}`), ledger: await get(`/api/session/${sid}/ledger`) }, null, 2));
       }
       console.log(`[run ${at()}] ledger:\n  ${dump.ledger.join('\n  ')}\n[run] receipt: ${dump.receipt.replace(/\s+/g, ' ').slice(0, 300)}`);
