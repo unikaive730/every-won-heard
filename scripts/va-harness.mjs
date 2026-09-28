@@ -176,7 +176,12 @@ async function relay(calls) {
   if (!UPDATE_FIRST) update();
   h.state = last.state;
   h.checkout = last.checkout;
-  if (done.some(([, r]) => r.end_session)) endAfterReply = true;
+  if (done.some(([, r]) => r.end_session)) {
+    endAfterReply = true;
+    // like the web client (armEnd): end 9 s after the end_call result even if no reply completes (merge run 1: the
+    // reply to that result started and never finished, and the call ran on to the 200 s watchdog)
+    setTimeout(() => end('end_call_timeout'), 9000);
+  }
   if (done.some(([c, r]) => c.name === 'build_plan' && !r.is_error)) planReplyNext = true;
 }
 
