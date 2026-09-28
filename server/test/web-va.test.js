@@ -75,7 +75,7 @@ function harness({ slowMs = 0 } = {}) {
   return { gate, sent, ran, dropped, release: () => release && release() };
 }
 
-test('tool gate: collect on tool.call, relay on reply.done, then tool.result and the next stage update', async () => {
+test('tool gate: collect on tool.call, relay on reply.done, then the next stage update before tool.result', async () => {
   const h = harness();
   h.gate.onTurnEvent('reply.started');
   h.gate.onToolCall({ call_id: 'c1', name: 'record_budget', arguments: { owner_words: 'four eighty' } });
@@ -83,8 +83,24 @@ test('tool gate: collect on tool.call, relay on reply.done, then tool.result and
   await h.gate.onReplyDone('completed');
   assert.deepEqual(h.ran, ['record_budget']);
   assert.equal(h.sent.length, 2);
-  assert.deepEqual(h.sent[0], { type: 'tool.result', call_id: 'c1', result: '{"ok":true,"name":"record_budget"}', is_error: false });
-  assert.deepEqual(h.sent[1], { type: 'session.update', session: { tools: [{ name: 'after_record_budget' }] } }, 'greeting stripped');
+  assert.deepEqual(h.sent[0], { type: 'session.update', session: { tools: [{ name: 'after_record_budget' }] } }, 'update first, greeting stripped');
+  assert.deepEqual(h.sent[1], { type: 'tool.result', call_id: 'c1', result: '{"ok":true,"name":"record_budget"}', is_error: false });
+});
+
+test('tool gate: no session.update when our server says the stage did not change', async () => {
+  const sent = [];
+  const gate = createToolGate({
+    runTool: async (call) => ({ result: '{"error":"ambiguous_amount"}', is_error: true, state: 's1', state_changed: call.name === 'record_shop', session_update: { tools: [{ name: 'record_budget' }] } }),
+    send: (m) => sent.push(m),
+  });
+  gate.onToolCall({ call_id: 'r1', name: 'record_budget' });
+  await gate.onReplyDone('completed');
+  assert.deepEqual(sent.map((m) => m.type), ['tool.result'], 'same stage: the result alone');
+  gate.onTurnEvent('reply.started');
+  gate.onToolCall({ call_id: 's1', name: 'record_shop' });
+  gate.onToolCall({ call_id: 'r2', name: 'record_budget' });
+  await gate.onReplyDone('completed');
+  assert.deepEqual(sent.slice(1).map((m) => m.type), ['session.update', 'tool.result', 'tool.result'], 'one call moved the stage: update first');
 });
 
 test('tool gate: interrupted reply drops collected calls before they reach the server', async () => {
@@ -108,8 +124,8 @@ test('tool gate: owner starts talking during the relay -> hold the result until 
   await p;
   assert.deepEqual(h.sent, [], 'held: reply.done is no longer the latest event');
   await h.gate.onReplyDone('completed');
-  assert.equal(h.sent[0].type, 'tool.result');
-  assert.equal(h.sent[0].call_id, 'c1');
+  assert.deepEqual(h.sent.map((m) => m.type), ['session.update', 'tool.result']);
+  assert.equal(h.sent[1].call_id, 'c1');
 });
 
 test('tool gate: interrupted while our server works -> result dropped, stage update still sent', async () => {
@@ -148,7 +164,7 @@ test('tool gate: a tool.call that lands after reply.done is relayed at once', as
   const h = harness();
   await h.gate.onReplyDone('completed'); // previous reply
   await h.gate.onToolCall({ call_id: 'late', name: 'end_call' });
-  assert.equal(h.sent[0].call_id, 'late');
+  assert.equal(h.sent.find((m) => m.type === 'tool.result').call_id, 'late');
 });
 
 test('latency meter: speech stopped -> first reply audio only, median of measured values', () => {

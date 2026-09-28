@@ -145,11 +145,16 @@ export function createResampler(fromRate, toRate) {
  * Ordering rules for client-side tools (va_client_tools.md "Returning tool results"):
  *
  *   tool.call            collect; nothing is sent to our server yet
- *   reply.done completed relay every collected call to POST /tool (in order), then send tool.result for each,
- *                        then the next stage's session.update, but only while reply.done is still the latest
- *                        event. If the owner starts talking meanwhile, hold the results for the next reply.done.
+ *   reply.done completed relay every collected call to POST /tool (in order), then, while reply.done is still
+ *                        the latest event: the next stage's session.update when our server's stage changed,
+ *                        and after it tool.result for each call. The update goes first so the reply to the
+ *                        results already has the next stage's tools (measured in the core runs: with the result
+ *                        first, the reply after confirm_budget had no build_plan). If the owner starts talking
+ *                        meanwhile, hold both for the next reply.done.
  *   reply.done interrupted  drop the collected calls (they never reach the server) and any held results
  *   reply.started / input.speech.started   a turn is in flight: hold
+ *
+ * A server response without `state_changed` (an older server) counts as changed when it has a session_update.
  *
  * @param {{runTool:(call)=>Promise<{result:any, is_error?:boolean, session_update?:object, state?:string}>,
  *          send:(msg)=>void, onResult?:(call, r)=>void, onDropped?:(calls, why)=>void}} deps
@@ -162,18 +167,20 @@ export function createToolGate({ runTool, send, onResult = () => {}, onDropped =
   let gen = 0; // bumps on interruption: results of an older generation are dropped
 
   const resultText = (r) => (typeof r.result === 'string' ? r.result : JSON.stringify(r.result ?? {}));
+  const stageChanged = (r) => Boolean(r?.session_update) && r.state_changed !== false;
 
   function flush() {
     if (last !== 'reply.done' || !ready.length) return false;
     const batch = ready;
     ready = [];
+    // the last response carries the server's current stage; send it only when some call moved the stage
     let update = null;
+    for (const { r } of batch) if (r.session_update) update = r.session_update;
+    const u = batch.some(({ r }) => stageChanged(r)) ? laterUpdate(update) : null;
+    if (u) send(u); // the next stage first: tools, system prompt, listening settings
     for (const { call, r } of batch) {
       send({ type: 'tool.result', call_id: call.call_id, result: resultText(r), is_error: Boolean(r.is_error) });
-      if (r.session_update) update = r.session_update;
     }
-    const u = laterUpdate(update);
-    if (u) send(u); // the next stage: tools, system prompt, listening settings
     return true;
   }
 
@@ -192,7 +199,7 @@ export function createToolGate({ runTool, send, onResult = () => {}, onDropped =
         }
         if (myGen !== gen) { // interrupted while our server was working: the model moved on
           onDropped([call], 'interrupted');
-          const u = laterUpdate(r.session_update);
+          const u = stageChanged(r) ? laterUpdate(r.session_update) : null;
           if (u) send(u); // our server's stage did change, keep the agent's tools in step with it
           continue;
         }

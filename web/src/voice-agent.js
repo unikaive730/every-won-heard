@@ -8,8 +8,11 @@
  *     -> input.audio                       50 ms of 24 kHz PCM16, base64, only after session.ready
  *     <- transcript.user                   -> POST /api/session/:id/heard: our server keeps its own copy of what
  *                                             the owner said, and checks every budget against it
- *     <- tool.call ... reply.done          -> POST /api/session/:id/tool (in order), then tool.result, then the
- *                                             next stage's session.update (tools, prompt, listening settings)
+ *     <- transcript.agent                  -> POST /api/session/:id/heard with role 'agent': the ledger marks the
+ *                                             amount read back, and a yes only counts after that
+ *     <- tool.call ... reply.done          -> POST /api/session/:id/tool (in order), then the next stage's
+ *                                             session.update when the stage changed (tools, prompt, listening
+ *                                             settings), then tool.result (update first, see lib/va.js)
  *     <- input.speech.started              the owner talks: stop the agent's audio here at once
  *     <- reply.done status=interrupted     drop the tool calls collected for that reply
  *     -> session.end                       billing stops now (a bare close bills a 30 s resume window)
@@ -166,8 +169,8 @@ export class VoiceAgentClient {
     return true;
   }
 
-  postHeard({ item_id, text, via = 'voice-agent' }) {
-    const body = { item_id, text, at: Date.now(), via };
+  postHeard({ item_id, text, via = 'voice-agent', role = null }) {
+    const body = { item_id, text, at: Date.now(), via, ...(role ? { role } : {}) };
     this.heardChain = this.heardChain
       .then(() => this.api(`/api/session/${this.id}/heard`, { method: 'POST', json: body }))
       .catch((err) => this.emit('warn', { message: `heard: ${err.message}` }));
@@ -235,6 +238,8 @@ export class VoiceAgentClient {
         this.emit('agent-partial', { reply_id: msg.reply_id, delta: msg.delta });
         break;
       case 'transcript.agent':
+        // in order with the owner's transcripts: confirm_budget checks the read back came before the yes
+        if (msg.text) this.postHeard({ item_id: msg.item_id || msg.reply_id || null, text: msg.text, role: 'agent' });
         this.emit('agent', { reply_id: msg.reply_id, text: msg.text, interrupted: Boolean(msg.interrupted) });
         break;
       case 'reply.done':
