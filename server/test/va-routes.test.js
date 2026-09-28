@@ -43,7 +43,7 @@ const post = async (base, p, body) => {
   return { status: r.status, body: await r.json() };
 };
 
-test('GET /api/voice-agent/token: Bearer key, 60 s to connect, 240 s session cap; 503 without a key; 429 passes through', async () => {
+test('GET /api/voice-agent/token: Bearer key, 60 s to connect, 240 s session cap; 503 without a key; an upstream 429 is the paused note', async () => {
   const r = await fetch(`${stored}/api/voice-agent/token`);
   assert.equal(r.status, 200);
   const j = await r.json();
@@ -58,8 +58,11 @@ test('GET /api/voice-agent/token: Bearer key, 60 s to connect, 240 s session cap
   tokenStatus = 429;
   const limited = await fetch(`${stored}/api/voice-agent/token`);
   tokenStatus = 200;
-  assert.equal(limited.status, 429);
-  assert.ok(!JSON.stringify(await limited.json()).includes('fake-key'), 'the key never reaches the page');
+  assert.equal(limited.status, 503);
+  const lj = await limited.json();
+  assert.equal(lj.error, 'voice_unavailable');
+  assert.equal(lj.upstream_status, 429);
+  assert.ok(!JSON.stringify(lj).includes('fake-key'), 'the key never reaches the page');
 });
 
 test('POST /api/session engine voice-agent: English, s0, first session.update binds the stored agent or goes inline', async () => {

@@ -16,8 +16,14 @@
  *   GET  /api/session/:id/ledger             money ledger rows (value, source, phrase, heard/read back/confirmed times)
  *   POST /api/session/:id/aai-session        {aai_session_id} from the Voice Agent session.ready
  *   GET  /api/session/:id/receipt            ledger checked against AssemblyAI's record of the call + LLM Gateway summary
- *   GET  /api/products                       catalog (live MCP or mock, with source)
- *   GET  /api/places?keyword=                Naver Place search through MCP
+ *   GET  /api/products                       catalog (live MCP or mock, with source; DEMO_MODE: the allowlist, generic names)
+ *   GET  /api/places?keyword=                map listing search through MCP (off in DEMO_MODE)
+ *   GET  /demo-checkout/:id                  DEMO_MODE only: "Demo checkout. No payment is taken." page for a call's plan
+ *
+ * Public demo protection (server/lib/guard.js): token routes are calls and are rate limited per IP with a daily cap
+ * for everyone; audio uploads and new sessions have their own per-IP limits; VOICE_DEMO_ENABLED=0 pauses voice.
+ * DEMO_MODE=1 limits the catalog to the allowlist (server/data/display-names.json), turns checkout into a demo page,
+ * turns place search off and caps upload sizes.
  */
 import http from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
@@ -34,11 +40,37 @@ import { buildPlan, checkoutItems } from './lib/planner.js';
 import { mergeProfile } from './lib/extract.js';
 import { createToolRunner, initVoiceAgent, recordHeard } from './lib/tools.js';
 import { firstSessionUpdate } from './lib/states.js';
+import { createGuard, guardOptionsFromEnv, clientIp, PAUSED_MESSAGE } from './lib/guard.js';
+import { isDemoMode, allowlistCatalog, displayName, DISPLAY_NAMES, ALLOWED_PRODUCT_IDS, demoCheckout, baseUrlOf, renderDemoCheckoutPage, isSessionId } from './lib/demo.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const MAX_BODY = 40 * 1024 * 1024;
 const KO_MAX_SESSION_SECONDS = Math.min(1800, Math.max(60, Number(process.env.KO_MAX_SESSION_SECONDS) || 300));
 const VA_MAX_SESSION_SECONDS = Math.min(1800, Math.max(60, Number(process.env.VA_MAX_SESSION_SECONDS) || 240));
+// DEMO_MODE upload caps: a Korean turn (~90 s of 16 kHz PCM16) and a whole call (~6 min)
+const DEMO_TURN_MAX = 3 * 1024 * 1024;
+const DEMO_ANALYZE_MAX = 12 * 1024 * 1024;
+
+// Routes that spend AssemblyAI credit or memory, and the guard bucket each one draws from.
+// A token is a call: the Korean streaming token here and the Voice Agent token (/api/voice-agent/token).
+const TOKEN_ROUTES = new Set(['/api/assemblyai/token', '/api/voice-agent/token']);
+const UPLOAD_ACTIONS = new Set(['voice-turn', 'analyze']);
+function guardKind(method, pathname) {
+  if (method === 'GET' && TOKEN_ROUTES.has(pathname)) return 'voice';
+  if (method === 'POST' && pathname === '/api/session') return 'session';
+  const parts = pathname.split('/').filter(Boolean);
+  if (method === 'POST' && parts[1] === 'session' && UPLOAD_ACTIONS.has(parts[3])) return 'upload';
+  return null;
+}
+
+const PAGE_HEADERS = {
+  'Content-Type': 'text/html; charset=utf-8',
+  'Cache-Control': 'no-store',
+  'X-Robots-Tag': 'noindex',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+};
 
 function json(res, status, body) {
   const data = JSON.stringify(body);
@@ -48,11 +80,14 @@ function json(res, status, body) {
 
 function readBody(req, limit = MAX_BODY) {
   return new Promise((resolve, reject) => {
+    const tooLarge = () => Object.assign(new Error('body too large'), { status: 413 });
+    // a declared length over the limit is answered with 413 before any of the body is read
+    if (Number(req.headers['content-length']) > limit) { reject(tooLarge()); return; }
     const chunks = [];
     let size = 0;
     req.on('data', (c) => {
       size += c.length;
-      if (size > limit) { reject(Object.assign(new Error('body too large'), { status: 413 })); req.destroy(); return; }
+      if (size > limit) { reject(tooLarge()); req.destroy(); return; }
       chunks.push(c);
     });
     req.on('end', () => resolve(Buffer.concat(chunks)));
@@ -71,17 +106,29 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; cha
 /**
  * Build the HTTP server with injectable dependencies (tests pass fakes).
  */
-export function createApp({ assemblyai, mcp, llm, agent, gateway, tools, receiptPoll = { intervalMs: 5000, tries: 6 }, voiceAgentId = process.env.VOICE_AGENT_ID || null, vaConnect = process.env.VA_CONNECT || 'stored', demoMode = process.env.DEMO_MODE === '1', publicBaseUrl = process.env.PUBLIC_BASE_URL || '', staticDir = null, logger = console } = {}) {
+export function createApp({ assemblyai, mcp, llm, agent, gateway, tools, guard, demoMode = isDemoMode(), trustProxyHops, receiptPoll = { intervalMs: 5000, tries: 6 }, voiceAgentId = process.env.VOICE_AGENT_ID || null, vaConnect = process.env.VA_CONNECT || 'stored', publicBaseUrl = process.env.PUBLIC_BASE_URL || '', staticDir = null, logger = console } = {}) {
   const aai = assemblyai || createAssemblyAI({ logger });
   const mcpClient = mcp || createMcpClient({ logger });
   const llmClient = llm === undefined ? createLlm({ logger }) : llm;
   const gw = gateway === undefined ? createGateway({ logger }) : gateway;
-  const getCatalog = () => mcpClient.listProducts();
-  const ag = agent || createAgent({ llm: llmClient, getCatalog, searchPlaces: (kw) => mcpClient.searchPlaces(kw), logger });
-  const runner = tools || createToolRunner({ getCatalog, createCheckout: (x) => mcpClient.createCheckout(x), demoMode, logger });
+  const guardEnv = guardOptionsFromEnv();
+  const guardClient = guard || createGuard(guardEnv);
+  const proxyHops = trustProxyHops ?? guardEnv.trustProxyHops;
+  const demo = Boolean(demoMode);
+  // DEMO_MODE: the planner, /api/products and health only ever see the allowlisted products
+  const getCatalog = async () => {
+    const cat = await mcpClient.listProducts();
+    return demo ? { ...cat, products: allowlistCatalog(cat.products) } : cat;
+  };
+  // the public demo is a fictional shop: no lookups of real stores on the production MCP
+  const searchPlaces = demo ? null : (kw) => mcpClient.searchPlaces(kw);
+  const ag = agent || createAgent({ llm: llmClient, getCatalog, searchPlaces, logger });
+  // the Voice Agent tools read the same (allowlisted in DEMO_MODE) catalog
+  const runner = tools || createToolRunner({ getCatalog, createCheckout: (x) => mcpClient.createCheckout(x), demoMode: demo, logger });
   // a stored agent is bound by agent_id; VA_CONNECT=inline (or no VOICE_AGENT_ID) sends the whole s0 config instead
   const agentIdForCalls = vaConnect === 'inline' ? null : voiceAgentId;
-  const originOf = (req) => publicBaseUrl || `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host || 'localhost'}`;
+  // links the server hands out (demo checkout): PUBLIC_BASE_URL, else the request's own host
+  const originOf = (req) => baseUrlOf(req, { PUBLIC_BASE_URL: publicBaseUrl });
 
   async function handleApi(req, res, url) {
     const parts = url.pathname.split('/').filter(Boolean); // ['api', ...]
@@ -94,7 +141,9 @@ export function createApp({ assemblyai, mcp, llm, agent, gateway, tools, receipt
         assemblyai: { configured: aai.enabled, streaming: { en: 'stream', ko: 'stream' }, models: { en: 'universal-3-5-pro', ko: 'universal-3-6-pro' }, note: aai.enabled ? null : 'ASSEMBLYAI_API_KEY missing: voice is disabled, type-to-chat still works' },
         llm: llmClient ? { configured: true, model: llmClient.model, state: llmClient.state } : { configured: false, mode: 'rules', note: 'LLM_API_KEY missing: rule-based consultant' },
         summary: gw ? { via: 'llm-gateway', model: gw.model, enabled: !gw.state.disabled } : { via: 'template', enabled: false },
-        mcp: { url: mcpClient.url, reachable: mcpStatus.ok, serverInfo: mcpStatus.serverInfo || null, catalogSource: cat.source, products: cat.products.length, capturedAt: cat.capturedAt || null, error: mcpStatus.ok ? null : mcpStatus.error },
+        mcp: { url: mcpClient.url, reachable: mcpStatus.ok, serverInfo: mcpStatus.serverInfo || null, checkedAt: mcpStatus.checkedAt || null, catalogSource: cat.source, products: cat.products.length, capturedAt: cat.capturedAt || null, error: mcpStatus.ok ? null : mcpStatus.error },
+        voice_demo: guardClient.status(), // the web app reads enabled / message to show the paused note
+        demo: { mode: demo, allowlist: demo ? ALLOWED_PRODUCT_IDS.length : null },
       });
     }
 
@@ -106,6 +155,8 @@ export function createApp({ assemblyai, mcp, llm, agent, gateway, tools, receipt
         return json(res, 200, t);
       } catch (err) {
         logger.error?.(`[token] ${err.message}`);
+        // out of credit, forbidden or rate limited upstream: show the paused note, never retry here
+        if ([402, 403, 429].includes(err.status)) return json(res, 503, { error: 'voice_unavailable', paused: true, upstream_status: err.status, message: PAUSED_MESSAGE });
         return json(res, err.status === 401 ? 401 : 502, { error: err.code || 'token_failed', message: err.message });
       }
     }
@@ -118,18 +169,25 @@ export function createApp({ assemblyai, mcp, llm, agent, gateway, tools, receipt
         return json(res, 200, { ...t, agent_id: agentIdForCalls });
       } catch (err) {
         logger.error?.(`[va-token] ${err.message}`);
-        return json(res, [401, 403, 429].includes(err.status) ? err.status : 502, { error: err.code || 'token_failed', message: err.message });
+        // same as the Korean route: out of credit, forbidden or rate limited upstream shows the paused note, no retry
+        if ([402, 403, 429].includes(err.status)) return json(res, 503, { error: 'voice_unavailable', paused: true, upstream_status: err.status, message: PAUSED_MESSAGE });
+        return json(res, err.status === 401 ? 401 : 502, { error: err.code || 'token_failed', message: err.message });
       }
     }
 
     if (m === 'GET' && url.pathname === '/api/products') {
       const cat = await getCatalog();
+      if (demo) {
+        const products = cat.products.map((p) => ({ productId: p.productId, productName: displayName(p.productId, 'en'), productNameKo: displayName(p.productId, 'ko'), group: DISPLAY_NAMES.get(p.productId)?.group || null, unitPrice: p.unitPrice, minOrderUnit: p.minOrderUnit, maxOrderUnit: p.maxOrderUnit, aiOrderable: p.aiOrderable }));
+        return json(res, 200, { source: cat.source, demo: true, capturedAt: cat.capturedAt || null, count: products.length, products });
+      }
       return json(res, 200, { source: cat.source, capturedAt: cat.capturedAt || null, count: cat.products.length, products: cat.products.map((p) => ({ productId: p.productId, productName: p.productName, category: p.category, unitPrice: p.unitPrice, minOrderUnit: p.minOrderUnit, maxOrderUnit: p.maxOrderUnit, aiOrderable: p.aiOrderable })) });
     }
 
     if (m === 'GET' && url.pathname === '/api/places') {
       const keyword = url.searchParams.get('keyword') || '';
       if (!keyword.trim()) return json(res, 400, { error: 'keyword required' });
+      if (demo) return json(res, 200, { source: 'disabled', places: [], note: 'Place search is off in the public demo.' });
       return json(res, 200, await mcpClient.searchPlaces(keyword));
     }
 
@@ -222,11 +280,11 @@ export function createApp({ assemblyai, mcp, llm, agent, gateway, tools, receipt
 
       if (m === 'POST' && action === 'voice-turn') {
         if (!aai.enabled) return json(res, 503, { error: 'no_key' });
-        const audio = await readBody(req);
+        const audio = await readBody(req, demo ? DEMO_TURN_MAX : MAX_BODY);
         if (audio.length < 1000) return json(res, 400, { error: 'audio too short' });
         const lang = url.searchParams.get('lang') || session.lang;
         try {
-          const t = await aai.transcribe(audio, { languageCode: lang === 'ko' ? 'ko' : 'en', keyterms: ['네이버 플레이스', '인스타그램', '영수증 리뷰', '마켓파일럿'], pollIntervalMs: 700 });
+          const t = await aai.transcribe(audio, { languageCode: lang === 'ko' ? 'ko' : 'en', keyterms: ['마켓파일럿', '만 원', '한 달', '체험단', '보도자료', '전단지'], pollIntervalMs: 700 });
           const text = String(t.text || '').trim();
           if (!text) return json(res, 200, { transcript: '', reply: null, empty: true });
           const r = await ag.handleUtterance(session.id, text, { meta: { via: 'turn', assemblyaiId: t.id, languageCode: t.language_code } });
@@ -239,7 +297,7 @@ export function createApp({ assemblyai, mcp, llm, agent, gateway, tools, receipt
 
       if (m === 'POST' && action === 'analyze') {
         if (!aai.enabled) return json(res, 503, { error: 'no_key' });
-        const audio = await readBody(req);
+        const audio = await readBody(req, demo ? DEMO_ANALYZE_MAX : MAX_BODY);
         if (audio.length < 1000) return json(res, 400, { error: 'audio too short' });
         const lang = session.lang;
         try {
@@ -269,6 +327,12 @@ export function createApp({ assemblyai, mcp, llm, agent, gateway, tools, receipt
 
       if (m === 'POST' && action === 'checkout') {
         const body = await readJson(req);
+        if (demo) {
+          // the public demo never creates a payment link and keeps no name or phone number
+          if (!session.plan) return json(res, 400, { error: 'no_plan' });
+          session.checkout = demoCheckout(session, originOf(req));
+          return json(res, 200, session.checkout);
+        }
         const customerName = String(body.customerName || '').trim();
         if (!customerName) return json(res, 400, { error: 'customerName required' });
         if (!session.plan) return json(res, 400, { error: 'no_plan' });
@@ -307,17 +371,48 @@ export function createApp({ assemblyai, mcp, llm, agent, gateway, tools, receipt
     }
   }
 
+  function serveDemoCheckout(req, res, url) {
+    if (!demo || req.method !== 'GET') return json(res, 404, { error: 'not_found' });
+    let id = '';
+    try { id = decodeURIComponent(url.pathname.slice('/demo-checkout/'.length)).replace(/\/+$/, ''); } catch { id = ''; }
+    const valid = isSessionId(id);
+    const session = valid ? ag.getSession(id) : null;
+    res.writeHead(session ? 200 : 404, PAGE_HEADERS);
+    res.end(renderDemoCheckoutPage(session, valid ? id : ''));
+  }
+
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
+    let ticket = null;
+    let failed = false;
     try {
-      if (url.pathname.startsWith('/api/')) return await handleApi(req, res, url);
+      if (url.pathname.startsWith('/api/')) {
+        const kind = guardKind(req.method, url.pathname);
+        if (kind) {
+          const ip = clientIp(req, { trustProxyHops: proxyHops });
+          const v = guardClient.take(ip, kind);
+          if (!v.ok) {
+            if (v.retryAfter) res.setHeader('Retry-After', String(v.retryAfter));
+            logger.warn?.(`[guard] ${kind} blocked for ${ip}: ${v.body.error}${v.body.scope ? `/${v.body.scope}` : ''}`);
+            return json(res, v.status, v.body);
+          }
+          ticket = v.ticket;
+          if (kind === 'voice') logger.log?.(`[guard] call for ${ip} (${guardClient.status().used_today ?? '-'} today)`);
+        }
+        return await handleApi(req, res, url);
+      }
+      if (url.pathname.startsWith('/demo-checkout/')) return serveDemoCheckout(req, res, url);
       return await serveStatic(req, res, url);
     } catch (err) {
+      failed = true;
       logger.error?.(`[server] ${req.method} ${url.pathname}: ${err.stack || err}`);
-      if (!res.headersSent) json(res, err.status || 500, { error: 'internal', message: err.message });
+      if (!res.headersSent) json(res, err.status || 500, { error: err.status === 413 ? 'too_large' : 'internal', message: err.message });
+    } finally {
+      // a request that failed spent nothing upstream: give its use back
+      if (ticket && (failed || res.statusCode >= 400)) guardClient.refund(ticket);
     }
   });
-  return { server, agent: ag, mcp: mcpClient, assemblyai: aai, llm: llmClient, tools: runner };
+  return { server, agent: ag, mcp: mcpClient, assemblyai: aai, llm: llmClient, tools: runner, guard: guardClient, demoMode: demo };
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
@@ -328,7 +423,9 @@ if (isMain) {
   const staticDir = process.env.NODE_ENV === 'production' ? dist : null;
   const app = createApp({ staticDir });
   app.server.listen(port, () => {
+    const v = app.guard.status();
     console.log(`[server] http://localhost:${port}  assemblyai=${app.assemblyai.enabled ? 'on' : 'OFF (no key)'}  llm=${app.llm ? app.llm.model : 'rules-only'}  mcp=${app.mcp.url}`);
+    console.log(`[server] demo=${app.demoMode ? 'on' : 'off'}  voice=${v.paused ? 'PAUSED' : 'on'}  limits=${v.limits ? `${v.limits.per_ip_minute}/min ${v.limits.per_ip_day}/day per IP, ${v.limits.daily_cap} calls/day` : 'off'}`);
     if (staticDir) console.log(`[server] serving ${staticDir}`);
   });
 }

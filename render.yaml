@@ -1,0 +1,43 @@
+# Render Blueprint for the public demo (https://render.com/docs/blueprint-spec).
+# One Node process serves the built web app (dist/) and the API. Sessions live in memory, so this runs as a
+# single instance; the browser talks to AssemblyAI directly with short-lived tokens, so no server WebSocket.
+services:
+  - type: web
+    name: every-won-heard
+    runtime: node
+    plan: free
+    region: oregon
+    # NODE_ENV=production is set at build time too, so dev dependencies (vite) are asked for explicitly
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: node server/index.js
+    # "/" is static; /api/health would check the MarketPilot MCP server
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # secrets: entered in the dashboard on first deploy, never committed
+      - key: ASSEMBLYAI_API_KEY
+        sync: false
+      - key: VOICE_AGENT_ID
+        sync: false
+      # public demo: allowlisted products only, demo checkout page, call limits on
+      - key: DEMO_MODE
+        value: "1"
+      - key: DAILY_SESSION_CAP
+        value: "25"
+      # "0" pauses every voice route (typing keeps working)
+      - key: VOICE_DEMO_ENABLED
+        value: "1"
+      - key: VA_MAX_SESSION_SECONDS
+        value: "240"
+      - key: KO_MAX_SESSION_SECONDS
+        value: "300"
+      # Render's proxy appends the caller's address to X-Forwarded-For
+      - key: TRUST_PROXY_HOPS
+        value: "1"
+      - key: CALL_SUMMARY
+        value: "0"
+      - key: LLM_GATEWAY_MODEL
+        value: qwen3.5-4b-32k-fast
+      - key: MARKETPILOT_MCP_URL
+        value: https://api.marketpilot.it/mcp

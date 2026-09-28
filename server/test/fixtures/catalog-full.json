@@ -1,0 +1,272 @@
+{
+  "_meta": {
+    "note": "Test fixture: the products the channel-mix planner uses, with generic names. Prices and order units as in the 2026-09-23 catalog snapshot.",
+    "count": 24
+  },
+  "products": [
+    {
+      "productId": 1,
+      "productName": "Map listing saves",
+      "category": "Map listing > traffic",
+      "unitPrice": 70,
+      "hasCustomPrice": false,
+      "minOrderUnit": null,
+      "maxOrderUnit": null,
+      "aiOrderable": true,
+      "aiOrderableReason": null
+    },
+    {
+      "productId": 2,
+      "productName": "Map listing visits",
+      "category": "Map listing > traffic",
+      "unitPrice": 60,
+      "hasCustomPrice": false,
+      "minOrderUnit": null,
+      "maxOrderUnit": null,
+      "aiOrderable": true,
+      "aiOrderableReason": null
+    },
+    {
+      "productId": 3,
+      "productName": "Map listing directions",
+      "category": "Map listing > traffic",
+      "unitPrice": 65,
+      "hasCustomPrice": false,
+      "minOrderUnit": null,
+      "maxOrderUnit": null,
+      "aiOrderable": true,
+      "aiOrderableReason": null
+    },
+    {
+      "productId": 5,
+      "productName": "Photo social likes",
+      "category": "Photo social",
+      "unitPrice": 25,
+      "hasCustomPrice": false,
+      "minOrderUnit": 5,
+      "maxOrderUnit": 20000,
+      "aiOrderable": true,
+      "aiOrderableReason": null
+    },
+    {
+      "productId": 104,
+      "productName": "Receipt-verified review",
+      "category": "Map listing > visitor reviews",
+      "unitPrice": 3000,
+      "hasCustomPrice": false,
+      "minOrderUnit": 30,
+      "maxOrderUnit": null,
+      "aiOrderable": true,
+      "aiOrderableReason": null
+    },
+    {
+      "productId": 106,
+      "productName": "준최적화 4~7",
+      "category": "기자단 리뷰 > 실제 블로거 섭외형",
+      "unitPrice": 9000,
+      "hasCustomPrice": false,
+      "minOrderUnit": 10,
+      "maxOrderUnit": null,
+      "aiOrderable": true,
+      "aiOrderableReason": null
+    },
+    {
+      "productId": 109,
+      "productName": "Messenger channel friends",
+      "category": "Messenger channel",
+      "unitPrice": 150,
+      "hasCustomPrice": false,
+      "minOrderUnit": 100,
+      "maxOrderUnit": null,
+      "aiOrderable": true,
+      "aiOrderableReason": null
+    },
+    {
+      "productId": 111,
+      "productName": "Second map app visits",
+      "category": "Second map app",
+      "unitPrice": 35,
+      "hasCustomPrice": false,
+      "minOrderUnit": 100,
+      "maxOrderUnit": null,
+      "aiOrderable": true,
+      "aiOrderableReason": null
+    },
+    {
+      "productId": 112,
+      "productName": "이미지 보정",
+      "category": "이미지 보정",
+      "unitPrice": 3000,
+      "hasCustomPrice": false,
+      "minOrderUnit": null,
+      "maxOrderUnit": null,
+      "aiOrderable": true,
+      "aiOrderableReason": null
+    },
+    {
+      "productId": 142,
+      "productName": "일반보도(베이직)",
+      "category": "언론배포 > 일반보도",
+      "unitPrice": 90000,
+      "hasCustomPrice": false,
+      "minOrderUnit": null,
+      "maxOrderUnit": null,
+      "aiOrderable": true,
+      "aiOrderableReason": null
+    },
+    {
+      "productId": 147,
+      "productName": "Medical press release",
+      "category": "Press > medical",
+      "unitPrice": 150000,
+      "hasCustomPrice": false,
+      "minOrderUnit": null,
+      "maxOrderUnit": null,
+      "aiOrderable": true,
+      "aiOrderableReason": null
+    },
+    {
+      "productId": 165,
+      "productName": "Local classifieds ad management",
+      "category": "Ad management",
+      "unitPrice": 0,
+      "hasCustomPrice": false,
+      "minOrderUnit": null,
+      "maxOrderUnit": null,
+      "aiOrderable": false,
+      "aiOrderableReason": "문의 후 진행되는 상품이에요. 웹사이트에서 문의를 남겨주세요."
+    },
+    {
+      "productId": 172,
+      "productName": "Search traffic",
+      "category": "Web traffic",
+      "unitPrice": 3,
+      "hasCustomPrice": false,
+      "minOrderUnit": null,
+      "maxOrderUnit": null,
+      "aiOrderable": true,
+      "aiOrderableReason": null
+    },
+    {
+      "productId": 173,
+      "productName": "Global map app reviews",
+      "category": "Global map app",
+      "unitPrice": 3000,
+      "hasCustomPrice": false,
+      "minOrderUnit": 10,
+      "maxOrderUnit": 3000,
+      "aiOrderable": true,
+      "aiOrderableReason": null
+    },
+    {
+      "productId": 176,
+      "productName": "Video sponsorship",
+      "category": "Sponsorship",
+      "unitPrice": 0,
+      "hasCustomPrice": false,
+      "minOrderUnit": null,
+      "maxOrderUnit": null,
+      "aiOrderable": false,
+      "aiOrderableReason": "문의 후 진행되는 상품이에요. 웹사이트에서 문의를 남겨주세요."
+    },
+    {
+      "productId": 179,
+      "productName": "Shipped product reviews",
+      "category": "Product reviews",
+      "unitPrice": null,
+      "hasCustomPrice": false,
+      "minOrderUnit": 10,
+      "maxOrderUnit": 2000,
+      "aiOrderable": false,
+      "aiOrderableReason": "가격 구조가 복잡한 상품이라 웹사이트(www.marketpilot.it)에서만 주문할 수 있어요."
+    },
+    {
+      "productId": 186,
+      "productName": "App installs",
+      "category": "App marketing",
+      "unitPrice": 300,
+      "hasCustomPrice": false,
+      "minOrderUnit": 1000,
+      "maxOrderUnit": 100000,
+      "aiOrderable": true,
+      "aiOrderableReason": null
+    },
+    {
+      "productId": 189,
+      "productName": "App reviews and ratings",
+      "category": "App marketing",
+      "unitPrice": 4500,
+      "hasCustomPrice": false,
+      "minOrderUnit": 10,
+      "maxOrderUnit": 500,
+      "aiOrderable": true,
+      "aiOrderableReason": null
+    },
+    {
+      "productId": 211,
+      "productName": "Franchise press release",
+      "category": "Press > franchise",
+      "unitPrice": 140000,
+      "hasCustomPrice": false,
+      "minOrderUnit": null,
+      "maxOrderUnit": null,
+      "aiOrderable": true,
+      "aiOrderableReason": null
+    },
+    {
+      "productId": 234,
+      "productName": "Photo social followers",
+      "category": "Photo social",
+      "unitPrice": 170,
+      "hasCustomPrice": false,
+      "minOrderUnit": 5,
+      "maxOrderUnit": 50000,
+      "aiOrderable": true,
+      "aiOrderableReason": null
+    },
+    {
+      "productId": 249,
+      "productName": "포스터 제작",
+      "category": "오프라인 광고 > 제작물",
+      "unitPrice": 66000,
+      "hasCustomPrice": false,
+      "minOrderUnit": 1,
+      "maxOrderUnit": 20,
+      "aiOrderable": true,
+      "aiOrderableReason": null
+    },
+    {
+      "productId": 251,
+      "productName": "전단지 제작",
+      "category": "오프라인 광고 > 제작물",
+      "unitPrice": 99000,
+      "hasCustomPrice": false,
+      "minOrderUnit": 1,
+      "maxOrderUnit": 20,
+      "aiOrderable": true,
+      "aiOrderableReason": null
+    },
+    {
+      "productId": 277,
+      "productName": "Marketplace listing optimization",
+      "category": "Marketplace",
+      "unitPrice": 14900,
+      "hasCustomPrice": false,
+      "minOrderUnit": 1,
+      "maxOrderUnit": 20,
+      "aiOrderable": false,
+      "aiOrderableReason": "문의 후 진행되는 상품이에요. 웹사이트에서 문의를 남겨주세요."
+    },
+    {
+      "productId": 282,
+      "productName": "플레이스 진단 보고서",
+      "category": "추천 패키지",
+      "unitPrice": 100000,
+      "hasCustomPrice": false,
+      "minOrderUnit": null,
+      "maxOrderUnit": null,
+      "aiOrderable": true,
+      "aiOrderableReason": null
+    }
+  ]
+}

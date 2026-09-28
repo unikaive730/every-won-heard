@@ -34,14 +34,14 @@ export const BUSINESS_TYPES = [
 ];
 
 const KO_AREAS = ['강남', '서초', '송파', '잠실', '홍대', '합정', '마포', '성수', '건대', '신촌', '이태원', '용산', '종로', '명동', '을지로', '여의도', '영등포', '노원', '강북', '강서', '목동', '판교', '분당', '수원', '용인', '일산', '고양', '김포', '부천', '안양', '인천', '부산', '해운대', '서면', '대구', '대전', '광주', '울산', '세종', '제주', '서귀포', '천안', '청주', '전주', '창원', '포항', '춘천', '강릉', '속초', '경주', '여수', '순천', '구미', '서울', '동탄', '광교', '위례', '하남', '구리', '남양주', '의정부', '평택', '오산', '화성', '안산', '시흥', '성남', '역삼', '삼성동', '논현', '압구정', '청담', '신사', '가로수길', '연남', '망원', '상수', '문래', '익선동', '북촌', '서촌', '한남'];
-const EN_AREAS = { gangnam: '강남', seocho: '서초', songpa: '송파', jamsil: '잠실', hongdae: '홍대', hapjeong: '합정', mapo: '마포', seongsu: '성수', konkuk: '건대', sinchon: '신촌', itaewon: '이태원', yongsan: '용산', jongno: '종로', myeongdong: '명동', yeouido: '여의도', pangyo: '판교', bundang: '분당', suwon: '수원', yongin: '용인', ilsan: '일산', incheon: '인천', busan: '부산', haeundae: '해운대', daegu: '대구', daejeon: '대전', gwangju: '광주', ulsan: '울산', sejong: '세종', jeju: '제주', seoul: '서울', gangbuk: '강북', hannam: '한남', apgujeong: '압구정', cheongdam: '청담', yeonnam: '연남', mangwon: '망원' };
+export const EN_AREAS = { gangnam: '강남', seocho: '서초', songpa: '송파', jamsil: '잠실', hongdae: '홍대', hapjeong: '합정', mapo: '마포', seongsu: '성수', konkuk: '건대', sinchon: '신촌', itaewon: '이태원', yongsan: '용산', jongno: '종로', myeongdong: '명동', yeouido: '여의도', pangyo: '판교', bundang: '분당', suwon: '수원', yongin: '용인', ilsan: '일산', incheon: '인천', busan: '부산', haeundae: '해운대', daegu: '대구', daejeon: '대전', gwangju: '광주', ulsan: '울산', sejong: '세종', jeju: '제주', seoul: '서울', gangbuk: '강북', hannam: '한남', apgujeong: '압구정', cheongdam: '청담', yeonnam: '연남', mangwon: '망원' };
 
 export const PROBLEMS = [
   { key: 'new_open', ko: '신규 오픈', en: 'just opened', patterns: [/오픈|개업|새로 (차|열|시작)|창업|런칭|출시/, /just opened|new(ly)? open|opening|launch(ed|ing)?|just started|brand new/i] },
   { key: 'low_traffic', ko: '손님·매출 부족', en: 'not enough customers', patterns: [/손님[이은도]?.{0,6}?(없|안 ?[와오]|적|줄)|매출[이은도]?.{0,6}?(떨어|줄|안 ?나|없)|한산|텅 ?비|사람[이은]?.{0,4}?없|장사가 ?안|(평일|주말|점심|저녁|오전|오후|낮|밤)[^.?!]{0,10}?(비어|비고|비는|비었|한가)/,/no customers|not enough (customers|traffic|people|foot traffic)|slow|empty|sales (are |have )?(down|drop|fall)|fewer customers|nobody comes|dead/i] },
   { key: 'reviews', ko: '리뷰 부족', en: 'few reviews', patterns: [/리뷰|후기|별점|평점|영수증/, /review|rating|stars/i] },
-  { key: 'place_rank', ko: '플레이스·검색 노출', en: 'search / map visibility', patterns: [/플레이스|지도|노출|순위|검색(에|해도)? ?안|상위|랭킹|검색/, /naver place|google maps?|ranking|\brank\b|search results|visib|show(s|ing)? up|discover/i] },
-  { key: 'instagram', ko: '인스타그램 성장', en: 'Instagram growth', patterns: [/인스타|팔로워|릴스|SNS|틱톡|유튜브/i, /instagram|followers|reels|social media|tiktok|youtube/i] },
+  { key: 'place_rank', ko: '지도·검색 노출', en: 'search / map visibility', patterns: [/플레이스|지도|노출|순위|검색(에|해도)? ?안|상위|랭킹|검색/, /naver place|google maps?|ranking|\brank\b|search results|visib|show(s|ing)? up|discover/i] },
+  { key: 'instagram', ko: '사진 SNS 성장', en: 'photo social growth', patterns: [/인스타|팔로워|릴스|SNS|틱톡|유튜브/i, /instagram|followers|reels|social media|tiktok|youtube/i] },
   { key: 'competition', ko: '경쟁 심화', en: 'competition', patterns: [/경쟁|옆집|주변에 ?(많|생)|근처에 ?(많|생)/, /compet|rival|next door/i] },
   { key: 'delivery', ko: '배달 매출', en: 'delivery orders', patterns: [/배달|배민|쿠팡이츠|요기요/, /delivery|baemin|coupang eats|takeout/i] },
   { key: 'repeat', ko: '재방문·단골', en: 'repeat customers', patterns: [/단골|재방문|재구매|멤버십|카카오 ?채널|쿠폰/, /repeat|loyal|retention|regulars|come back|membership|coupon/i] },
