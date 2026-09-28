@@ -129,7 +129,7 @@ export function createApp({ assemblyai, mcp, llm, agent, gateway, guard, demoMod
         llm: llmClient ? { configured: true, model: llmClient.model, state: llmClient.state } : { configured: false, mode: 'rules', note: 'LLM_API_KEY missing: rule-based consultant' },
         summary: gw ? { via: 'llm-gateway', model: gw.model, enabled: !gw.state.disabled } : { via: 'template', enabled: false },
         mcp: { url: mcpClient.url, reachable: mcpStatus.ok, serverInfo: mcpStatus.serverInfo || null, checkedAt: mcpStatus.checkedAt || null, catalogSource: cat.source, products: cat.products.length, capturedAt: cat.capturedAt || null, error: mcpStatus.ok ? null : mcpStatus.error },
-        voice: guardClient.status(),
+        voice_demo: guardClient.status(), // the web app reads enabled / message to show the paused note
         demo: { mode: demo, allowlist: demo ? ALLOWED_PRODUCT_IDS.length : null },
       });
     }

@@ -67,8 +67,8 @@ test('health: demo mode on, allowlist only, voice limits shown, MCP status check
   assert.equal(j.mcp.catalogSource, 'live');
   assert.equal(j.mcp.products, ALLOWED_PRODUCT_IDS.length, 'the live catalog is filtered to the allowlist');
   assert.ok(j.mcp.checkedAt);
-  assert.equal(j.voice.enabled, true);
-  assert.deepEqual(j.voice.limits, { per_ip_minute: 3, per_ip_day: 10, daily_cap: 25 });
+  assert.equal(j.voice_demo.enabled, true);
+  assert.deepEqual(j.voice_demo.limits, { per_ip_minute: 3, per_ip_day: 10, daily_cap: 25 });
   await fetch(`${base}/api/health`);
   assert.equal(initializeCalls, 1, 'one MCP initialize for six health checks');
 });
@@ -84,8 +84,8 @@ test('token route: 3 calls a minute per IP, then 429 with Retry-After; health co
   assert.equal(j.error, 'rate_limited');
   assert.equal(j.scope, 'ip_minute');
   const h = await (await fetch(`${b}/api/health`)).json();
-  assert.equal(h.voice.used_today, 3);
-  assert.equal(h.voice.left_today, 22);
+  assert.equal(h.voice_demo.used_today, 3);
+  assert.equal(h.voice_demo.left_today, 22);
 });
 
 test('daily cap: calls stop for everyone, health tells the web app before anyone presses Start', async () => {
@@ -100,8 +100,8 @@ test('daily cap: calls stop for everyone, health tells the web app before anyone
   assert.equal(j.error, 'daily_cap');
   assert.equal(j.message, CAP_MESSAGE);
   const h = await (await fetch(`${b}/api/health`)).json();
-  assert.equal(h.voice.enabled, false);
-  assert.equal(h.voice.message, CAP_MESSAGE);
+  assert.equal(h.voice_demo.enabled, false);
+  assert.equal(h.voice_demo.message, CAP_MESSAGE);
 });
 
 test('VOICE_DEMO_ENABLED=0: voice routes answer with the paused note, typing still works', async () => {
@@ -117,7 +117,7 @@ test('VOICE_DEMO_ENABLED=0: voice routes answer with the paused note, typing sti
   assert.equal(u.status, 200);
   const up = await fetch(`${b}/api/session/${s.sessionId}/voice-turn`, { method: 'POST', body: new Uint8Array(4000) });
   assert.equal(up.status, 503);
-  assert.equal((await (await fetch(`${b}/api/health`)).json()).voice.paused, true);
+  assert.equal((await (await fetch(`${b}/api/health`)).json()).voice_demo.paused, true);
 });
 
 test('upstream out of credit or rate limited: paused note, no retry, and the failed call is given back', async () => {
@@ -130,7 +130,7 @@ test('upstream out of credit or rate limited: paused note, no retry, and the fai
     assert.equal(j.error, 'voice_unavailable');
     assert.equal(j.upstream_status, status);
     assert.equal(j.message, PAUSED_MESSAGE);
-    assert.equal((await (await fetch(`${b}/api/health`)).json()).voice.used_today, 0, 'refunded');
+    assert.equal((await (await fetch(`${b}/api/health`)).json()).voice_demo.used_today, 0, 'refunded');
   }
 });
 
