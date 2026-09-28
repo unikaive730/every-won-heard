@@ -1,195 +1,274 @@
-# MarketPilot Voice Consultant
+# Every Won Heard
 
-**A voice marketing consultant for small business owners, built on AssemblyAI.**
-The owner talks (Korean or English). AssemblyAI transcribes in real time, an agent asks the
-three questions that matter (business, budget, urgent problem), and a priced 30-day plan with an
-action checklist appears on screen while the consultant reads it out. When the call ends,
-AssemblyAI's speaker labels, sentiment, key phrases and entity detection turn the recording into a
-structured brief of "what the owner actually complained about". Real products and prices come from
-MarketPilot's public MCP server, so the plan ends in a real card-checkout link.
+**A voice marketing consultant for small shop owners, built on the AssemblyAI Voice Agent API.**
+The owner talks for about three minutes. The agent asks only for what's missing (the shop, the
+neighborhood, the main problem, the monthly budget) and returns a priced 30-day plan drawn from
+MarketPilot's real service catalog, ending in a checkout link. Every amount on screen traces back to
+the owner's own words or to the catalog.
 
-Built for the lablab.ai x AssemblyAI **Voice Agent Hackathon** (build window 2026-09-01 to 09-30).
+Built for the lablab.ai x AssemblyAI Voice Agent Hackathon (September 2026). MIT licensed.
 
 ```
-npm install
-cp .env.example .env      # add ASSEMBLYAI_API_KEY (voice) and optionally LLM_API_KEY
-npm run dev               # API on :8787 + Vite on :5173  ->  open http://localhost:5173
-npm test                  # 47 unit tests, no network, no keys
+npm ci
+cp .env.example .env      # add ASSEMBLYAI_API_KEY
+npm run dev               # API on :8787 + web on :5173, open http://localhost:5173
+npm test                  # offline tests, no network, no keys
 ```
-
-Without any key the app still runs: the header badges show `AssemblyAI: no key`, `LLM: rules`, and
-you can hold the whole consultation by typing in the composer. With only `ASSEMBLYAI_API_KEY` you
-get live voice; with `LLM_API_KEY` the consultant's wording comes from Claude instead of templates.
 
 ---
 
-## What it does (demo flow)
+## Why
 
-1. Pick a language, press **Start call**. The consultant greets you (browser TTS).
-2. Talk: "I run a cafe near Gangnam station and weekdays are dead. I can spend about 500,000 won a month."
-3. Live transcript appears on the left (partials in italics, finals as bubbles). The **What we heard**
-   card fills chips as slots are recognized: business, location, budget, urgent problem.
-4. Once business + budget + problem are known, the **30-day plan** card renders: channel mix,
-   real MarketPilot products with quantities that respect min/max order units, total <= budget,
-   assumptions, and the **Action checklist**. The consultant reads a 2-sentence summary.
-5. Say "go ahead" / "진행" -> the consultant points to **Create card checkout link** (MarketPilot MCP
-   `create_checkout`, no signup needed).
-6. Press **End call**. The whole recording goes to AssemblyAI's pre-recorded API with speaker labels,
-   sentiment analysis, key phrases and entity detection. The **Call analysis** card shows who spoke,
-   the owner's negative sentences as quotes, key phrases, and named facts (places, money, orgs).
-   Problems found there are merged back into the profile and the plan is re-built.
+Owners of cafes, restaurants and salons rarely book a marketing agency's intake call. They talk
+between orders, from behind the counter. When the talk turns to money, a misheard number becomes the
+wrong plan, or the wrong charge. AssemblyAI puts it plainly on its product page: *your agent is only as
+good as what it actually hears.* So this agent also shows what it heard.
+
+Every amount the owner says becomes a row in a **money ledger** with its evidence: the owner's words,
+when they were heard, when the agent read them back, and when the owner said yes. A budget is only used
+after that yes. Prices and totals come from the catalog, never from a model. After the call, the ledger
+is checked against AssemblyAI's own record of the session.
+
+## The model never passes a number
+
+No tool takes a price, a total or even the budget as a number. `record_budget` takes the owner's words
+and a period, and **our server reads the amount** from those words and from the transcript it received.
+
+```json
+{
+  "type": "function",
+  "name": "record_budget",
+  "description": "Call this right after the owner says any monthly marketing budget, including a corrected one or a range. Pass only the owner's words; the tool reads the amount and tells you what to say. Do not call it for prices, totals or discounts.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "owner_words": { "type": "string", "description": "The owner's words for the amount, copied exactly as you heard them." },
+      "period": { "type": "string", "enum": ["monthly", "one_time"] }
+    },
+    "required": ["owner_words", "period"]
+  }
+}
+```
+
+This started as a design choice and turned into a measured one:
+
+| Date (2026-09-28) | What we ran | What happened |
+|---|---|---|
+| Probe series, 8 short calls | "My monthly marketing budget is 480,000 won." against four tool sets with an `amount_krw` argument (typed integer, number, or string), and three tools with only string arguments (a note, the owner's words, the docs' weather example with its own question) | With an amount argument the tool call never arrived, whatever its JSON type, and the agent said nothing. Each string-only tool was called |
+| `scripts/probe/va-words-probe.mjs`, one 30.7 s call | the tool above; caller says "Maybe four or five hundred thousand won a month.", then "Four hundred eighty thousand won a month." | Both tool calls arrived about 0.4 s after `transcript.user`, with `owner_words` "400,000 or 500,000 won a month" and "Four hundred eighty thousand won a month". The server answered `ambiguous_amount` (options 400,000 and 500,000) with `is_error: true`, then 480,000. The agent asked which one, then read back "four hundred eighty thousand won a month" |
+
+So the only thing the model hands over is what the owner said. The number comes from our parser
+(`server/lib/amounts.js`), and the check runs on the server (`server/lib/grounding.js`):
+
+1. Candidates are the owner's final turns since the last budget decision (the last two, within 20 s),
+   read together so a number split by a pause ("four hundred... eighty thousand") is read as one.
+2. Amounts are read from digits (480,000, 480k), English number words (four hundred eighty thousand,
+   half a million), Korean units said in English (fifty man won) and Korean (사십팔만 원, 48만 원).
+   Percentages and counts are not amounts ("twenty percent off", "ten posts").
+3. A correction marker (no, actually, I mean, make that / 아니, 말고) keeps the last amount.
+4. A range or two amounts without a correction returns `ambiguous_amount` with both options.
+   No amount returns `no_amount_heard`. Errors go back as `tool.result` with `is_error: true`.
+5. A single amount becomes a ledger row (`heard`), the tool result carries the read-back sentence, and
+   only the owner's yes to that read-back makes it `confirmed`. `build_plan` opens only after that.
+6. The model's `owner_words` are kept as evidence; if they do not appear in the transcript the row is
+   marked `paraphrased`.
+
+The same parser and the same ledger serve the Korean path. Two ears, one ledger.
 
 ---
 
-## Architecture
+## How it works
 
 ```
- Browser (Vite, vanilla JS)                         Node 22 server (no framework)                 External
- ─────────────────────────────                      ─────────────────────────────────            ─────────────────────────
- mic ──AudioWorklet──> 16 kHz PCM16 frames          GET  /api/assemblyai/token ───────────────>  streaming.assemblyai.com/v3/token
-   │                                                  (API key stays here; 60 s token out)
-   ├─ EN: WebSocket ──────────────────────────────────────────────────────────────────────────>  wss://streaming.assemblyai.com/v3/ws
-   │      Turn events -> reduceTurn() -> final text     (Universal-Streaming, universal-3-5-pro, format_turns)
-   │        └─> POST /api/session/:id/utterance ────>  agent.js
-   │                                                     ├─ extract.js  (rule slots: business/location/budget/problem)
-   ├─ KO: energy VAD cuts one utterance -> WAV           ├─ llm.js      (optional, Anthropic SDK, JSON schema output)
-   │        └─> POST /api/session/:id/voice-turn ───>    ├─ planner.js  (channel mix + priced picks + checklist)
-   │              server: /v2/upload + /v2/transcript ─>  api.assemblyai.com (pre-recorded, universal-2 for ko)
-   │                                                     └─ mcp.js ──── JSON-RPC ───────────────>  api.marketpilot.it/mcp
-   │                                                            list_products · search_places · create_checkout
-   ├─ TTS (Web Speech API) reads the reply; mic is muted while speaking (half-duplex)
-   │
-   └─ End: whole-call WAV -> POST /api/session/:id/analyze ──>  api.assemblyai.com/v2/transcript
-                                                              speaker_labels · sentiment_analysis · auto_highlights · entity_detection
-                                                              └─> brief.js -> "owner brief" (speakers, concerns, key phrases, entities)
+                        ┌──────────────── AssemblyAI ──────────────────┐
+ EN  browser ── wss ──► │ Voice Agent API (stored agent, 24 kHz PCM)   │
+     voice-agent.js     │   speech-to-text · turn detection · barge-in │
+       │  tool.call ◄── │   managed LLM · voice output · function tools│
+       │                └──────────────────────────────────────────────┘
+       ▼ POST /api/session/:id/tool, /heard
+     Node server ── states.js · tools.js · grounding.js · ledger.js · planner.js (catalog prices)
+       │              └ after the call: Sessions API timeline checked against the ledger (receipt)
+       ▲ POST /api/session/:id/utterance (KO)
+ KO  browser ── wss ──► Universal-3.6 Pro streaming (16 kHz) · agent_context · keyterms_prompt
+     stt.js             rule agent (agent.js) · browser Korean text-to-speech
 ```
 
-Files:
+The browser connects to AssemblyAI directly with a short-lived token; the API key never leaves the
+server. English calls run on the **Voice Agent API**. The Voice Agent API does not cover Korean, so
+Korean owners are heard by **Universal-3.6 Pro streaming**, and our own rule agent and the browser's
+voice do the talking. Both paths write to the same ledger through the same grounding check.
 
-| Path | Role |
-|---|---|
-| `server/index.js` | HTTP routes, session store, static serving of `dist/` in production |
-| `server/lib/assemblyai.js` | temp token, upload + transcript + polling, feature downgrade retry |
-| `server/lib/agent.js` | dialogue policy (slot filling, plan, confirmation), LLM or rules |
-| `server/lib/extract.js` | Korean/English slot extraction (business, area, budget incl. USD, problems) |
-| `server/lib/planner.js` | deterministic budget allocation over catalog products, checklist, spoken summary |
-| `server/lib/brief.js` | AssemblyAI intelligence results -> structured owner brief |
-| `server/lib/llm.js` | Anthropic SDK call with `output_config.format` JSON schema, `effort: low` |
-| `server/lib/mcp.js` | MarketPilot MCP client with mock fallback (`server/data/products.mock.json`) |
-| `web/src/main.js` | app orchestration (call lifecycle, half-duplex, analysis) |
-| `web/src/stt.js` | `StreamingSTT` (AssemblyAI WebSocket) and `TurnVAD` (utterance cutter) |
-| `web/src/lib/transcript.js` | pure Turn-event reducer + streaming URL builder (shared with tests) |
-| `web/src/pcm-worklet.js` | AudioWorklet: resample to 16 kHz, Int16 frames, RMS |
+### Five stages, tools revealed stage by stage
+
+| Stage | Goal | Tools the model can see | Listening setting (`session.update` → `input`) |
+|---|---|---|---|
+| s0 intake | shop type, neighborhood, main problem | `record_shop`, `end_call` | key terms: neighborhoods, shop types · balanced |
+| s1 budget | the monthly budget | `record_budget`, `record_shop`, `end_call` | key terms: won, man won, thousand won, a month · transcription prompt for money · max accuracy |
+| s2 confirm | read back, yes or no | `confirm_budget`, `record_budget`, `end_call` | as s1 |
+| s3 plan | build and read the plan | `build_plan`, `record_budget`, `end_call` | key terms: service names · balanced |
+| s4 commit | checkout link | `create_checkout_link`, `record_budget`, `build_plan`, `end_call` | as s3 |
+
+The stage update goes out before the `tool.result` that caused it, so the reply to that result is
+already generated with the next stage's tools. `record_shop` takes enums (shop type, main problem), so
+AssemblyAI rejects an off-list value before the tool runs. There is no discount tool: the prompt says
+the agent can only use catalog prices and can fit the plan to a smaller budget.
+
+### The plan
+
+`build_plan` takes no input. It reads the confirmed budget from the ledger and prices a plan from the
+catalog (live MarketPilot MCP, or the committed snapshot when that is unreachable). Fixed-price items
+go in first while the minimum blog order still fits, the rest buys blog posts, a small leftover buys
+photo retouching. The total never exceeds the budget, and the result carries the numbers in words
+(`spoken_total`, per-line `spoken`) so the voice never has to turn digits into speech.
+
+| Budget | Plan | Total |
+|---|---|---|
+| ₩480,000 | map listing audit report, basic press release, flyer, 21 sponsored blog posts | ₩478,000 |
+| ₩380,000 | map listing audit report, basic press release, flyer, 10 sponsored blog posts | ₩379,000 |
+
+The Korean path uses the same rules (checked for every budget from ₩10,000 to ₩3,000,000 in ₩1,000
+steps: same lines, same spoken forms).
+
+### The receipt
+
+When the call ends, the server fetches the call's record from the Sessions API
+(`GET /v1/sessions/{id}`, the timeline artifact appeared 3.2 s and 4.2 s after `session.ended` in our
+runs) and checks each confirmed amount against the owner's own transcript turns there, with the same
+parser. The page shows how many confirmed amounts matched AssemblyAI's record and how many tool calls
+the server rejected. Korean calls are checked against the Universal-3.6 Pro final turns.
 
 ---
 
 ## Where AssemblyAI is used
 
-| # | Feature | Where | Notes |
-|---|---|---|---|
-| 1 | **Temporary streaming token** `GET https://streaming.assemblyai.com/v3/token?expires_in_seconds=60&max_session_duration_seconds=1800` | `server/lib/assemblyai.js` -> `GET /api/assemblyai/token` | API key never reaches the browser |
-| 2 | **Universal-Streaming WebSocket** `wss://streaming.assemblyai.com/v3/ws` with `speech_model=universal-3-5-pro`, `encoding=pcm_s16le`, `sample_rate=16000`, `format_turns=true`, `language_detection=true`, `prompt=<domain context>`, `token=` | `web/src/stt.js`, URL built in `web/src/lib/transcript.js` | Browser sends 100 ms PCM16 chunks; `Turn` messages are reduced so each turn is emitted once (formatted final); `Terminate` on hang-up |
-| 3 | **Pre-recorded transcription** (`POST /v2/upload`, `POST /v2/transcript`, poll `GET /v2/transcript/{id}`) with `language_code=ko`, `keyterms_prompt` | `server/lib/assemblyai.js` -> `POST /api/session/:id/voice-turn` | Korean path. Universal-Streaming does not cover Korean yet (AssemblyAI lists it as "coming soon"), so Korean runs per-utterance through the pre-recorded API where Universal-2 supports `ko`. Latency is a few seconds instead of sub-second; the UI shows "Transcribing (AssemblyAI)". |
-| 4 | **Speaker labels** `speaker_labels=true` | `POST /api/session/:id/analyze` -> `server/lib/brief.js` | The speaker with the most words who is not echoing our TTS lines is the owner |
-| 5 | **Sentiment analysis** `sentiment_analysis=true` | same | English only on AssemblyAI; negative sentences become "concerns". Korean falls back to keyword rules |
-| 6 | **Key phrases** `auto_highlights=true` | same | English only; Korean uses frequency-based phrases |
-| 7 | **Entity detection** `entity_detection=true` | same | places, money amounts, organizations mentioned by the owner |
-
-If an intelligence feature is rejected for a language, `transcribe()` retries once with plain
-transcription so the call still completes (`features_downgraded: true` in the response).
-
----
-
-## LLM (optional) and the rule engine
-
-- `LLM_API_KEY` (Anthropic) enables `server/lib/llm.js`: one `messages.create` per owner turn with a
-  JSON-schema structured output (`reply`, `profile`, `ready_for_plan`, `owner_confirmed_plan`),
-  `output_config.effort = "low"` for speed and cost, `max_tokens 1024`. Default model `claude-opus-5`
-  (`LLM_MODEL` to override). A refusal stop reason, invalid JSON or any API error falls back to the
-  rule engine for that turn; an authentication error disables the LLM for the process.
-- The rule engine (`extract.js` + `agent.js`) always runs: it fills slots from every utterance and
-  asks for the next missing one (business -> location for physical stores -> budget -> problem).
-- Prices, product names and quantities are **never** generated by the LLM. `planner.js` allocates the
-  budget over channels chosen by business type and nudged by the problems mentioned, using catalog
-  unit prices and min/max order units, and guarantees `total_cost <= budget`.
-
-## MarketPilot MCP
-
-`https://api.marketpilot.it/mcp` (JSON-RPC over HTTP, Streamable HTTP style). Probed 2026-09-23:
-`initialize` and `tools/list` answer **without authentication** for the shopper group
-(`list_products`, `get_product`, `search_places`, `create_checkout`, `get_checkout_status`,
-`submit_inquiry`). Account tools (`quote_order`, `list_my_orders`, points) need a linked account and
-are not used.
-
-- `list_products` -> catalog (222 products) cached 10 min. If the endpoint is unreachable the server
-  loads `server/data/products.mock.json` (a snapshot of the same call taken 2026-09-23) and reports
-  `catalogSource: "mock"` in `/api/health`; the UI badge shows `MCP: mock` and the checkout form
-  explains that a real payment link cannot be created from the mock.
-- `search_places` -> Naver Place candidates once a location and a physical business type are known
-  (shown in the "What we heard" card, used in the checklist).
-- `create_checkout` -> real card checkout URL from the plan's orderable items (`aiOrderable=true`).
-  Inquiry-only products are listed separately and never priced.
-
----
-
-## Configuration
-
-`.env` (see `.env.example`):
-
-| Variable | Required | Purpose |
+| Feature | Where | What we measured (2026-09-28) |
 |---|---|---|
-| `ASSEMBLYAI_API_KEY` | for voice | temp tokens, transcription, call analysis |
-| `LLM_API_KEY` | no | Anthropic key for the conversational layer (rules if empty). Do not reuse a production key |
-| `LLM_MODEL` | no | default `claude-opus-5` |
-| `MARKETPILOT_MCP_URL` | no | default `https://api.marketpilot.it/mcp` |
-| `PORT` | no | API port, default 8787 (Vite proxies `/api` to it) |
+| **Voice Agent API**: browser token (`GET /v1/token`, Bearer), WebSocket, `session.update`, `input.audio` at real time, `session.end` on every exit | `server/lib/assemblyai.js`, `web/src/voice-agent.js`, `GET /api/voice-agent/token` | `session.ready` 1.5 s after connect; greeting's first audio 169 ms and 173 ms (`time_to_first_audio_ms`) |
+| **Stored agent** (`POST`/`PUT /v1/agents`) compiled from stage s0; later stages are swapped in during the call | `scripts/compile-agent.mjs`, `agents/every-won-heard.json` | |
+| **Function tools** with JSON Schema parameter hints (`enum`, `examples`) and `is_error` results | `server/lib/states.js`, `server/lib/tools.js` | numeric amount arguments dropped the call; words arguments always arrived (table above) |
+| **Progressive tool reveal**: tools, prompt and listening setting swapped per stage with `session.update` | `server/lib/states.js` | |
+| **Listening settings**: `input.keyterms`, `transcription_prompt`, `transcription_mode` (`max_accuracy` while money is said) | `server/lib/states.js`, `server/lib/listen.js` | |
+| **Barge-in**: `reply.done` with `status: interrupted` drops the tool calls collected for that reply and flushes playback | `web/src/lib/va.js`, `web/src/voice-agent.js`, `web/src/player.js` | |
+| **Universal-3.6 Pro Korean streaming** (`speech_model=universal-3-6-pro`, `language_detection`, `language_codes` as a JSON list `["ko","en"]`; the comma form `ko,en` is rejected with 3006) | `web/src/stt.js`, `web/src/lib/transcript.js`, `GET /api/assemblyai/token` | K1 to K3 (a synthesized Korean owner) in 4 runs: every final turn `ko`; "예산은 한 달에 50, 아니 48만 원" read as 480,000 after the correction; ledger row `사십팔만 원 · ₩480,000 · confirmed` every time. `Termination` 531 to 599 ms after `Terminate` |
+| **`agent_context` and `keyterms_prompt`** changed mid-call with `UpdateConfiguration` (the question the agent is about to ask, vocabulary for the stage) | `server/lib/listen.js`, `web/src/stt.js` | accepted silently; an invalid value closes the session (error 3006), so values are checked before sending. Audio messages must be 50 to 1000 ms (a 15 ms tail closed a session with 3007) |
+| **Sessions API** (`GET /v1/sessions/{id}`, timeline artifact) | `server/lib/assemblyai.js`, `server/lib/brief.js`, `GET /api/session/:id/receipt` | artifact ready 3.2 to 4.2 s after the session ended; timeline `item_id`s differ from `transcript.user`, so the receipt matches by amount |
+| **LLM Gateway** (`/v1/chat/completions`) for an optional post-call summary; the model only writes placeholders and the server fills every number from the ledger | `server/lib/gateway.js` | off by default (`CALL_SUMMARY=0`): the small model we could use broke the format, so the receipt uses a template |
+| Pre-recorded transcription (`/v2/transcript`) | `POST /api/session/:id/voice-turn` (Korean per-turn fallback), `/analyze` | kept as a fallback |
 
-Production: `npm run build` then `NODE_ENV=production node server/index.js` serves `dist/` and the
-API from one process (needs HTTPS for `getUserMedia` on anything but localhost).
+Cost at list price: the Voice Agent API is $4.50 per hour, so a four-minute consultation costs about
+$0.30 in voice infrastructure.
 
 ---
+
+## Public demo protection
+
+The public deployment runs with `DEMO_MODE=1`:
+
+- **Allowlisted products only.** The live catalog is cut to six products before the planner, the health
+  check or `/api/products` sees it (`server/data/display-names.json`), shown under generic names. The
+  committed `server/data/products.mock.json` is a snapshot of just those six.
+- **Demo checkout.** `create_checkout_link` and the checkout button return a link to
+  `/demo-checkout/:id`, a page that lists the plan and says "Demo checkout. No payment is taken." No
+  payment link is created and no name or phone number is kept.
+- **Call limits** (`server/lib/guard.js`). A token is a call: 3 per IP per minute, 10 per IP per day, and
+  `DAILY_SESSION_CAP` calls a day for everyone (default 25; a 429 carries `Retry-After`). A call whose
+  upstream request fails is given back. Audio uploads and new sessions have their own per-IP limits,
+  and uploads are size-capped.
+- **Pause switch.** `VOICE_DEMO_ENABLED=0` (or the daily cap, or an out-of-credit answer from
+  AssemblyAI) makes every voice route answer "The voice demo is paused. The video shows a full call."
+  Typing to the consultant keeps working, and `/api/health` reports it (`voice_demo`) so the page says
+  so before anyone presses Start.
+- **Cached health.** `/api/health` checks the MarketPilot MCP server at most once a minute.
+- No real store lookups from the public demo (the shop is fictional).
+
+Measured locally with the real key and the live catalog: three token requests got tokens, the fourth
+got 429 with `Retry-After: 60`; five parallel health checks made one MCP call; the live catalog's six
+prices matched the snapshot; an English text call planned ₩478,000 and its demo checkout page opened.
+
+---
+
+## Run and deploy
+
+### Local
+
+Node 22.12 or newer.
+
+```
+npm ci
+cp .env.example .env
+npm run dev          # API :8787, web :5173 (Vite proxies /api)
+npm test
+npm run build        # web app into dist/
+```
+
+Without a key the app still runs: the page shows `no key` and the consultation works by typing. On
+your own machine `DEMO_MODE=0` (the default) shows the full catalog and turns the call limits off.
+
+### Render (the public demo)
+
+`render.yaml` is a Blueprint for one free Node web service: build `npm ci --include=dev && npm run
+build`, start `node server/index.js`, health check `/`. In the dashboard choose *New → Blueprint*, pick
+the repository, and enter the two secrets it asks for:
+
+| Variable | Value |
+|---|---|
+| `ASSEMBLYAI_API_KEY` | the account key (stays on the server) |
+| `VOICE_AGENT_ID` | from `npm run agent:compile` |
+
+The Blueprint sets `DEMO_MODE=1`, `DAILY_SESSION_CAP=25`, `VOICE_DEMO_ENABLED=1`,
+`VA_MAX_SESSION_SECONDS=240`, `KO_MAX_SESSION_SECONDS=300` and `TRUST_PROXY_HOPS=1`. No other model key
+is deployed. After the first deploy, check that the `[guard] call for <ip>` log line shows your own
+address; if it shows a proxy address, raise `TRUST_PROXY_HOPS`. Sessions live in memory, so run one
+instance; a free instance sleeps after 15 minutes without traffic and the first request wakes it.
+
+Every setting is described in `.env.example`.
+
+---
+
+## Code map
+
+| Path | Role |
+|---|---|
+| `server/index.js` | HTTP routes (no framework), guard, demo checkout page, static `dist/` in production |
+| `server/lib/states.js` | the five stages: tools, prompt and listening setting per stage |
+| `server/lib/tools.js` | tool handlers for the Voice Agent path, stage transitions |
+| `server/lib/grounding.js` | the budget check against the owner's transcript |
+| `server/lib/amounts.js` | amount parser (digits, English and Korean words, corrections, ranges) and spoken forms |
+| `server/lib/ledger.js` | money ledger rows: value, source, phrase, heard / read back / confirmed times |
+| `server/lib/planner.js`, `server/lib/voice-plan.js` | catalog plans; total <= budget; generic names |
+| `server/lib/agent.js`, `server/lib/listen.js` | the Korean path's rule agent and its listening settings |
+| `server/lib/brief.js`, `server/lib/gateway.js` | receipt against the Sessions API timeline; optional summary |
+| `server/lib/guard.js`, `server/lib/demo.js` | public demo limits, allowlist, demo checkout |
+| `server/lib/mcp.js` | MarketPilot MCP client (catalog, checkout) with the snapshot fallback |
+| `web/src/voice-agent.js`, `web/src/lib/va.js`, `web/src/player.js` | Voice Agent client, tool relay and barge-in rules, 24 kHz playback |
+| `web/src/stt.js`, `web/src/lib/transcript.js` | Universal-3.6 Pro streaming client |
+| `web/src/demo-caller.js` | "Watch a demo call": synthesized caller lines streamed at real time |
+| `scripts/compile-agent.mjs` | builds and stores the agent (`npm run agent:compile`) |
+| `scripts/probe/` | the probes behind the measurements above (WAVs are generated, not committed) |
 
 ## Tests
 
-`npm test` runs `node --test` over `server/test/*.test.js` (47 tests, all offline with injected
-`fetch`/clients):
-
-- `transcript.test.js` streaming URL only carries the temp token; Turn reducer emits each turn once (formatted), flush on close
-- `assemblyai.test.js` token route (no key -> `no_key`, 401 -> `bad_key`), upload/transcript/poll, Korean never asks for English-only features, downgrade retry
-- `extract.test.js` Korean/English slots, budget parsing (만원, 원, won, $ with conversion), locations, merge order
-- `planner.test.js` total <= budget, min/max units, problem-driven mix, default budget assumption, inquiry items, checkout items
-- `brief.test.js` owner detection vs TTS echo, sentiment -> concerns, key phrases, entities, Korean fallback
-- `mcp.test.js` live parsing + cache, mock fallback with reason, tool errors, checkout call shape
-- `llm.test.js` structured output request shape, user-first history, refusal/invalid JSON -> null
-- `agent.test.js` full Korean and English rule-based calls, LLM path and fallback
-- `server.test.js` real HTTP server on an ephemeral port: health, token, session flow, voice-turn, analyze, checkout failure honesty
-
-Browser-side audio (mic, WebSocket, TTS) needs a real browser and a key; it is not covered by the
-unit tests.
-
----
-
-## Submission checklist (lablab.ai, due 2026-09-30)
-
-- [x] Uses AssemblyAI (streaming + pre-recorded + 4 audio-intelligence features)
-- [x] Runs locally with `npm run dev`; degrades honestly without keys
-- [x] Unit tests pass (`npm test`)
-- [x] Pitch deck draft: `docs/pitch.md` (8 slides, English)
-- [x] Demo video script: `docs/video-script.md` (60-90 s, English)
-- [ ] `ASSEMBLYAI_API_KEY` added to `.env` and a real English + Korean call tested end to end
-- [ ] Optional `LLM_API_KEY` (project-specific key, not the production one) and 2-3 test turns
-- [ ] Deploy the built app behind HTTPS (single Node process; e.g. Render/Fly/EC2 + Caddy) and put the URL in the submission
-- [ ] Record the 60-90 s demo (see script), upload, add link
-- [ ] Turn `docs/pitch.md` into slides (Google Slides / Pitch), export PDF
-- [ ] Public GitHub repo link + README (this file) in the lablab.ai submission form
-- [ ] Team page on lablab.ai filled (team name, members, project title, category)
+`npm test` runs `node --test` over `server/test/` with no network and no keys (114 tests on this
+branch): the amount parser and grounding rules, the ledger and receipt, the stages and tool handlers,
+the planner (total <= budget for every budget from ₩10,000 to ₩3,000,000, allowlist only, no platform
+names in anything spoken or shown), the guard (per-IP and daily limits, refunds, pause switch, proxy
+addresses), the demo checkout page, and the HTTP routes on a real server with fake upstreams. Browser
+audio needs a real browser and a key and is checked with the probes.
 
 ## Known limits
 
-- Korean is not streamed in real time (AssemblyAI streaming languages as of 2026-09: en, es, fr, de,
-  it, pt, tr, nl, sv, no, da, fi, hi, vi, ar, he, ja, zh). The per-utterance path is honest about it.
-- Sentiment and key phrases are English-only on AssemblyAI; Korean uses keyword rules.
-- Half-duplex: the mic is ignored while the consultant speaks, so barge-in is not supported.
-- Sessions live in memory; restart the server and they are gone.
-- The rule engine's vocabulary is a curated list (11 business types, 11 problems, ~90 areas); an LLM
-  key makes the conversation much more forgiving.
+- Sessions and guard counters live in memory; a restart clears them (the AssemblyAI account balance is
+  the last limit).
+- The Korean path is half-duplex: the owner cannot interrupt the browser's voice.
+- The caller in our demo video and probes is synthesized; accuracy on real owners' voices, kitchen noise
+  and accents is not measured yet.
+
+## Disclosure
+
+Built with an AI coding assistant (Claude Code); caller voice and narration are synthesized. The probe
+and demo caller lines are made with the Windows built-in voices (Microsoft Zira for English, Microsoft
+Heami for Korean). The agent, transcription, tools and prices in the demo are live.
+
+## License
+
+MIT, see `LICENSE`.
