@@ -314,7 +314,7 @@ async function startAgentCall({ demo = false } = {}) {
     app.ended = true;
     if (err.pause) showPaused(err.pause);
     else if (err.name === 'NotAllowedError') addBubble(els.transcript, 'system', t().micDenied);
-    else addBubble(els.transcript, 'system', err.message);
+    else addBubble(els.transcript, 'system', `${app.lang === 'ko' ? '음성 통화를 시작하지 못했습니다' : 'Could not start the voice call'}: ${err.message}`);
     setButtons('idle');
     setState(t().idle);
     paintBand();
@@ -341,10 +341,11 @@ async function finishAgentCall(why) {
   app.mic = null;
   setTimeout(teardownAudio, 250);
   setPartial(els.transcript, '');
+  for (const b of els.transcript.querySelectorAll('.bubble.agent.live')) b.classList.remove('live'); // a reply cut by the hang-up
   setButtons('idle');
   setState(t().ended);
   paintBand();
-  note('finished', { why, audioSeconds: app.va?.audioSeconds ?? null });
+  note('finished',{ why, audioSeconds: app.va?.audioSeconds ?? null });
   addBubble(els.transcript, 'system', why === 'time_limit' ? `${t().ended} (time limit)` : t().ended);
   await refreshLedger();
   loadReceipt();
@@ -432,7 +433,7 @@ async function startCall() {
       setState(app.lang === 'ko' ? t().noKey : t().typing);
       els.input.focus();
     }
-    await speak(s.greeting);
+    speak(s.greeting); // not awaited: a message typed during the greeting must not wait for (or be dropped behind) the TTS
   } catch (err) {
     addBubble(els.transcript, 'system', `could not start: ${err.message}`);
     setButtons('idle');
