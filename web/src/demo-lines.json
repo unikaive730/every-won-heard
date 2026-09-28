@@ -1,0 +1,15 @@
+{
+  "_note": "Synthesized caller for 'Watch a demo call' (design section 8, lines C1-C7). scripts/make-demo-audio.ps1 turns these into web/public/demo/<id>.wav (en-US Zira, 24 kHz mono PCM16). The WAVs are generated locally and not committed. `parts` adds pauses; `bargeIn` makes the line cut into the agent's plan reading.",
+  "voice": "en-US",
+  "rate": 24000,
+  "lines": [
+    { "id": "C1", "text": "Hi. I run a small ramen place near Mangwon Market. We opened in the spring. Weekends are fine, but weekday lunch is empty." },
+    { "id": "C2a", "text": "Maybe four or five hundred thousand won a month." },
+    { "id": "C2b", "text": "Four hundred... eighty thousand.", "parts": ["Four hundred", { "pause_ms": 1200 }, "eighty thousand."] },
+    { "id": "C3", "text": "Yes, that's right." },
+    { "id": "C4", "text": "Wait. Cut it to three hundred eighty thousand. And can you take twenty percent off?", "bargeIn": { "afterTool": "build_plan", "delayMs": 2500 } },
+    { "id": "C5", "text": "Yes." },
+    { "id": "C6", "text": "Okay. Go ahead." },
+    { "id": "C7", "text": "Thanks. Bye." }
+  ]
+}
